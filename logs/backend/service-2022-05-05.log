@@ -1,0 +1,109 @@
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] Loaded HTML Templates (8): 
+	- menu.html
+	- menu
+	- room.html
+	- stream.html
+	- style.html
+	- style
+	- 
+	- manager.html
+
+[GIN-debug] GET    /manager                  --> main.main.func1 (3 handlers)
+[GIN-debug] GET    /manager/room             --> main.main.func2 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out-all --> main.main.func3 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out    --> main.main.func4 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-mic-participant --> main.main.func5 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-cam-participant --> main.main.func6 (3 handlers)
+[GIN-debug] GET    /manager/room/turn-off-screen-sharing --> main.main.func7 (3 handlers)
+[GIN-debug] GET    /manager/streams          --> main.main.func8 (3 handlers)
+[GIN-debug] GET    /manager/streams/send     --> main.main.func9 (3 handlers)
+[GIN-debug] GET    /manager/stop-streaming   --> main.main.func10 (3 handlers)
+[GIN-debug] GET    /ws                       --> main.main.func11 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :2020
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] Loaded HTML Templates (8): 
+	- manager.html
+	- menu.html
+	- menu
+	- room.html
+	- stream.html
+	- style.html
+	- style
+	- 
+
+[GIN-debug] GET    /manager                  --> main.main.func1 (3 handlers)
+[GIN-debug] GET    /manager/room             --> main.main.func2 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out-all --> main.main.func3 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out    --> main.main.func4 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-mic-participant --> main.main.func5 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-cam-participant --> main.main.func6 (3 handlers)
+[GIN-debug] GET    /manager/room/turn-off-screen-sharing --> main.main.func7 (3 handlers)
+[GIN-debug] GET    /manager/streams          --> main.main.func8 (3 handlers)
+[GIN-debug] GET    /manager/streams/send     --> main.main.func9 (3 handlers)
+[GIN-debug] GET    /manager/stop-streaming   --> main.main.func10 (3 handlers)
+[GIN-debug] GET    /ws                       --> main.main.func11 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :2020
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /manager/assets/*filepath --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] Loaded HTML Templates (8): 
+	- style
+	- 
+	- manager.html
+	- menu.html
+	- menu
+	- room.html
+	- stream.html
+	- style.html
+
+[GIN-debug] GET    /manager                  --> main.main.func1 (3 handlers)
+[GIN-debug] GET    /manager/room             --> main.main.func2 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out-all --> main.main.func3 (3 handlers)
+[GIN-debug] GET    /manager/room/kick-out    --> main.main.func4 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-mic-participant --> main.main.func5 (3 handlers)
+[GIN-debug] GET    /manager/room/toggle-cam-participant --> main.main.func6 (3 handlers)
+[GIN-debug] GET    /manager/room/turn-off-screen-sharing --> main.main.func7 (3 handlers)
+[GIN-debug] GET    /manager/streams          --> main.main.func8 (3 handlers)
+[GIN-debug] GET    /manager/streams/send     --> main.main.func9 (3 handlers)
+[GIN-debug] GET    /manager/stop-streaming   --> main.main.func10 (3 handlers)
+[GIN-debug] GET    /ws                       --> main.main.func11 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :2020
+2022/05/05 16:42:39 [{RM_TZbEBGzEhhSQ vip 2022-05-05T16:42:22+07:00 audio/opus, video/VP8, video/H264 1}]
+[GIN] 2022/05/05 - 16:42:39 | 200 |   15.059692ms |  172.30.113.140 | GET      "/manager"
+2022/05/05 16:42:42 [{PA_W6TZfnmqRoTd khang cty 2022-05-05T16:42:22+07:00 can_publish, can_publish_data, can_subscribe false  false  false }]
+[GIN] 2022/05/05 - 16:42:42 | 200 |    5.562763ms |  172.30.113.140 | GET      "/manager/room?name=vip"
+[GIN] 2022/05/05 - 16:42:44 | 302 |  1.053490908s |  172.30.113.140 | GET      "/manager/room/kick-out?room-name=vip&user-name=khang%20cty"
+2022/05/05 16:42:44 []
+[GIN-debug] [WARNING] Headers were already written. Wanted to override status code 302 with 200
+[GIN] 2022/05/05 - 16:42:44 | 200 |    4.562654ms |  172.30.113.140 | GET      "/manager/room?name=vip"
+2022/05/05 16:42:44 [{RM_TZbEBGzEhhSQ vip 2022-05-05T16:42:22+07:00 audio/opus, video/VP8, video/H264 0}]
+[GIN] 2022/05/05 - 16:42:44 | 200 |    4.185964ms |  172.30.113.140 | GET      "/manager"
+[GIN] 2022/05/05 - 16:42:49 | 302 |  1.053785393s |  172.30.113.140 | GET      "/manager/room/kick-out-all?room-name=vip"
+2022/05/05 16:42:49 []
+[GIN] 2022/05/05 - 16:42:49 | 200 |    3.692179ms |  172.30.113.140 | GET      "/manager"

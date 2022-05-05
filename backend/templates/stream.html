@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0">
+    
+    <title>Stream to room</title>
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+        integrity="sha384-AYmEC3Yw5cVb3ZcuHtOA93w35dYTsvhLPVnYs9eStHfGJvOvKxVfELGroGkvsg+p" crossorigin="anonymous" />
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/select2.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap-datetimepicker.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/style.css">
+    <!--[if lt IE 9]>
+		<script src="/manager/assets/js/html5shiv.min.js"></script>
+		<script src="/manager/assets/js/respond.min.js"></script>
+	<![endif]-->
+    {{template "style"}}
+</head>
+
+<body>
+    <div class="main-wrapper">
+        {{template "menu" .nav}}
+        <div class="page-wrapper">
+            <div class="content">
+                <div class="row">
+                    <div class="col-sm-12">
+                        <h4 class="page-title">Stream to room</h4>
+                    </div>
+                </div>
+                <div class="row justify-content-center">
+                    <div class="col-6">
+                        <div class="card-box">
+                            <form action="#">
+                                <div class="form-group row">
+                                    <label class="col-md-3 col-form-label">Choose room</label>
+                                    <div class="col-md-9">
+                                        <select class="select" id="roomName">
+                                            {{range .listRoom}}
+                                            <option value="{{.Name}}">{{.Name}}</option>
+                                            {{end}}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group row">
+                                    <label class="col-md-3 col-form-label">RTMP downstream</label>
+                                    <div class="col-md-9">
+                                        <div class="input-group">
+                                            <input type="text" id="rtmpLink" class="form-control" value="rtmp://111.65.249.25:1930/live_10s_720/testmeeting">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-center">
+                                    <button type="button" class="btn btn-primary" id="start">Start streaming</button>
+                                    <a href="" class="btn btn-danger" id="stop" style="display: none">Stop streaming</a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="card-box">
+                            <div class="form-group row">
+                                <label>Output:</label>
+                                <pre id="output" class="form-control" style="min-height: 500px; background-color: #44475a; color: #fff;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="sidebar-overlay" data-reff=""></div>
+    <script>
+        let ws = new WebSocket('wss://video-call.vnexpress.net/ws');
+        let logger = document.getElementById("output");
+
+        send = function(data){
+            logger.append((new Date()).toLocaleString()+ " ==> "+data+"\n");
+            logger.scrollTop = logger.scrollHeight;
+            ws.send(data);
+        };
+
+        ws.onmessage = function(msg){
+            logger.append((new Date()).toLocaleString()+ " <== "+msg.data+"\n");
+            logger.scrollTop = logger.scrollHeight;
+            console.log(msg);
+        };
+
+        ws.onopen = function(){
+            send("ping");
+        }
+
+        document.getElementById("start").addEventListener("click", (e) => {
+            let roomName = document.getElementById("roomName").value;
+            if (roomName == "") {
+                document.getElementById("roomName").style.border = "1px solid red";
+                return;
+            }
+            let rtmpLink = document.getElementById("rtmpLink").value;
+            if (rtmpLink == "") {
+                document.getElementById("rtmpLink").style.border = "1px solid red";
+                return;
+            }
+            e.target.style.display = "none";
+            let stopBtn = document.getElementById("stop");
+            stopBtn.setAttribute("href", `/manager/stop-streaming?room-name=${roomName}`);
+            stopBtn.style.display = "block";
+
+            send(JSON.stringify({roomName: roomName, rtmpLink: rtmpLink}));
+        });
+    </script>
+    <script src="/manager/assets/js/jquery-3.2.1.min.js"></script>
+	<script src="/manager/assets/js/popper.min.js"></script>
+    <script src="/manager/assets/js/bootstrap.min.js"></script>
+    <script src="/manager/assets/js/jquery.dataTables.min.js"></script>
+    <script src="/manager/assets/js/dataTables.bootstrap4.min.js"></script>
+    <script src="/manager/assets/js/select2.min.js"></script>
+    <script src="/manager/assets/js/moment.min.js"></script>
+    <script src="/manager/assets/js/bootstrap-datetimepicker.min.js"></script>
+    <script src="/manager/assets/js/jquery.slimscroll.js"></script>
+    <script src="/manager/assets/js/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0">
+    
+    <title>Manager Room</title>
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+        integrity="sha384-AYmEC3Yw5cVb3ZcuHtOA93w35dYTsvhLPVnYs9eStHfGJvOvKxVfELGroGkvsg+p" crossorigin="anonymous" />
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/select2.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap-datetimepicker.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/style.css">
+    <!--[if lt IE 9]>
+		<script src="/manager/assets/js/html5shiv.min.js"></script>
+		<script src="/manager/assets/js/respond.min.js"></script>
+	<![endif]-->
+    {{template "style"}}
+    <style>
+        .end-call {
+            position: unset;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-wrapper">
+        {{template "menu" .nav}}
+        <div class="page-wrapper">
+            <div class="content">
+                <div class="row">
+                    <div class="col-sm-12">
+                        <h4 class="page-title">Manager room {{.roomName}}</h4>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="table-responsive">
+                            <table class="table table-striped custom-table mb-0 datatable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Name</th>
+                                        <th>Joined at</th>
+                                        <th>Permission</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .listParticipant}}
+                                    <tr>
+                                        <td>
+                                            <strong>{{.ID}}</strong>
+                                        </td>
+                                        <td>{{.Name}}</td>
+                                        <td>{{.JoinedAt}}</td>
+                                        <td>{{.Permission}}</td>
+                                        <td class="text-right">
+                                            <div class="call-icons">
+                                                <ul class="call-items">
+                                                    {{if .Camera_TrackID}}
+                                                    <li class="call-item">
+                                                        {{if .CameraEnable}}
+                                                        <a href="/manager/room/toggle-cam-participant?room-name={{$.roomName}}&sid={{.ID}}&enable=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Disable camera">
+                                                            <i class="fas fa-webcam"></i>
+                                                        </a>
+                                                        {{else}}
+                                                        <a href="/manager/room/toggle-cam-participant?room-name={{$.roomName}}&sid={{.ID}}&enable=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Enable camera">
+                                                            <i class="fas fa-webcam-slash text-danger"></i>
+                                                        </a>
+                                                        {{end}}
+                                                    </li>
+                                                    {{end}}
+                                                    {{if .Microphone_TrackID}}
+                                                    <li class="call-item">
+                                                        {{if .MicrophoneMuted}}
+                                                        <a href="/manager/room/toggle-mic-participant?room-name={{$.roomName}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Unmute">
+                                                            <i class="fas fa-microphone-slash text-danger"></i>
+                                                        </a>
+                                                        {{else}}
+                                                        <a href="/manager/room/toggle-mic-participant?room-name={{$.roomName}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Mute">
+                                                            <i class="fas fa-microphone"></i>
+                                                        </a>
+                                                        {{end}}
+                                                    </li>
+                                                    {{end}}
+                                                </ul>
+                                                {{if .ScreenShare}}
+                                                <a class="btn btn-success" href="/manager/room/turn-off-screen-sharing?room-name={{$.roomName}}&sid={{.ID}}">Turn off screen sharing</a>
+                                                {{end}}
+                                                <a class="btn btn-danger" href="/manager/room/kick-out?room-name={{$.roomName}}&user-name={{.Name}}">Kick out</a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="sidebar-overlay" data-reff=""></div>
+    <script src="/manager/assets/js/jquery-3.2.1.min.js"></script>
+	<script src="/manager/assets/js/popper.min.js"></script>
+    <script src="/manager/assets/js/bootstrap.min.js"></script>
+    <script src="/manager/assets/js/jquery.dataTables.min.js"></script>
+    <script src="/manager/assets/js/dataTables.bootstrap4.min.js"></script>
+    <script src="/manager/assets/js/select2.min.js"></script>
+    <script src="/manager/assets/js/moment.min.js"></script>
+    <script src="/manager/assets/js/bootstrap-datetimepicker.min.js"></script>
+    <script src="/manager/assets/js/jquery.slimscroll.js"></script>
+    <script src="/manager/assets/js/app.js"></script>
+</body>
+
+</html>

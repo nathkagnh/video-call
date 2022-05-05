@@ -1,0 +1,25 @@
+{{define "menu"}}
+<div class="header">
+    <div class="header-left">
+        <a href="/manager" class="logo">
+            <img src="/manager/assets/favicon.ico" width="35" height="35" alt=""> <span>Video call</span>
+        </a>
+    </div>
+    <a id="toggle_btn" href="javascript:void(0);"><i class="fa fa-bars"></i></a>
+    <a id="mobile_btn" class="mobile_btn float-left" href="#sidebar"><i class="fa fa-bars"></i></a>
+</div>
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-inner slimscroll">
+        <div id="sidebar-menu" class="sidebar-menu">
+            <ul>
+                <li{{if eq . "rooms"}} class="active"{{end}}>
+                    <a href="/manager"><i class="fas fa-users-class"></i> <span>Rooms</span></a>
+                </li>
+                <li{{if eq . "streams"}} class="active"{{end}}>
+                    <a href="/manager/streams"><i class="fad fa-stream"></i> <span>Stream</span></a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+{{end}}

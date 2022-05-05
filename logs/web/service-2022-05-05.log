@@ -1,0 +1,92 @@
+nohup: failed to run command ‘/data/video-call/web/service’: No such file or directory
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] GET    /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] HEAD   /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] GET    /                         --> main.main.func1 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN] 2022/05/05 - 16:35:02 | 200 |    1.515321ms |  172.30.113.140 | GET      "/?room=vip"
+[GIN] 2022/05/05 - 16:35:02 | 200 |    9.318535ms |  172.30.113.140 | GET      "/assets/css/styles.css"
+[GIN] 2022/05/05 - 16:35:02 | 200 |   12.816981ms |  172.30.113.140 | GET      "/assets/css/pro.fontawesome.css"
+[GIN] 2022/05/05 - 16:35:02 | 200 |   14.207627ms |  172.30.113.140 | GET      "/assets/css/bootstrap.min.css"
+[GIN] 2022/05/05 - 16:35:02 | 200 |   10.494248ms |  172.30.113.140 | GET      "/assets/js/bundle.js"
+[GIN] 2022/05/05 - 16:35:02 | 200 |     628.378µs |  172.30.113.140 | GET      "/assets/webfonts/fa-solid-900.woff2"
+[GIN] 2022/05/05 - 16:35:02 | 200 |     208.505µs |  172.30.113.140 | GET      "/favicon.ico"
+nohup: failed to run command ‘/data/video-call/web/service’: No such file or directory
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] GET    /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] HEAD   /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] GET    /                         --> main.main.func1 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /assets/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] GET    /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] HEAD   /favicon.ico              --> github.com/gin-gonic/gin.(*RouterGroup).StaticFile.func1 (3 handlers)
+[GIN-debug] GET    /                         --> main.main.func1 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN] 2022/05/05 - 16:42:13 | 200 |    1.685503ms |  172.30.113.140 | GET      "/?room=vip"
+[GIN] 2022/05/05 - 16:42:13 | 200 |     9.88887ms |  172.30.113.140 | GET      "/assets/css/bootstrap.min.css"
+[GIN] 2022/05/05 - 16:42:13 | 200 |   11.912776ms |  172.30.113.140 | GET      "/assets/css/pro.fontawesome.css"
+[GIN] 2022/05/05 - 16:42:13 | 200 |    8.802781ms |  172.30.113.140 | GET      "/assets/css/styles.css"
+[GIN] 2022/05/05 - 16:42:13 | 200 |    1.099771ms |  172.30.113.140 | GET      "/assets/js/bundle.js"
+[GIN] 2022/05/05 - 16:42:13 | 200 |     791.724µs |  172.30.113.140 | GET      "/assets/webfonts/fa-solid-900.woff2"
+[GIN] 2022/05/05 - 16:42:16 | 200 |     275.188µs |  172.30.113.140 | GET      "/favicon.ico"
+[GIN] 2022/05/05 - 16:42:23 | 200 |     169.619µs |  172.30.113.140 | GET      "/assets/images/unknown-user.jpg"
+[GIN] 2022/05/05 - 16:42:23 | 200 |      339.97µs |  172.30.113.140 | GET      "/assets/images/host.png"
+[GIN] 2022/05/05 - 16:42:23 | 200 |     240.031µs |  172.30.113.140 | GET      "/assets/images/cast.png"
+[GIN] 2022/05/05 - 16:42:33 | 404 |       1.404µs |  172.30.113.140 | GET      "/backend"
+[GIN] 2022/05/05 - 16:42:43 | 200 |    1.373659ms |  172.30.113.140 | GET      "/?room=vip"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     595.948µs |  172.30.113.140 | GET      "/assets/css/bootstrap.min.css"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     145.435µs |  172.30.113.140 | GET      "/assets/css/styles.css"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     443.057µs |  172.30.113.140 | GET      "/assets/css/pro.fontawesome.css"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     724.926µs |  172.30.113.140 | GET      "/assets/js/bundle.js"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     548.311µs |  172.30.113.140 | GET      "/assets/webfonts/fa-solid-900.woff2"
+[GIN] 2022/05/05 - 16:42:43 | 200 |     188.458µs |  172.30.113.140 | GET      "/favicon.ico"
+[GIN] 2022/05/05 - 16:42:55 | 200 |     179.049µs |  172.30.113.140 | GET      "/assets/images/unknown-user.jpg"
+[GIN] 2022/05/05 - 16:42:55 | 200 |      342.65µs |  172.30.113.140 | GET      "/assets/images/host.png"
+[GIN] 2022/05/05 - 16:42:55 | 200 |     204.148µs |  172.30.113.140 | GET      "/assets/images/cast.png"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     2.18533ms |  172.30.113.140 | GET      "/?room=vip"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     634.088µs |  172.30.113.140 | GET      "/assets/css/bootstrap.min.css"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     348.638µs |  172.30.113.140 | GET      "/assets/css/pro.fontawesome.css"
+[GIN] 2022/05/05 - 16:44:14 | 200 |      212.07µs |  172.30.113.140 | GET      "/assets/js/bootstrap.bundle.min.js"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     175.624µs |  172.30.113.140 | GET      "/assets/css/styles.css"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     611.648µs |  172.30.113.140 | GET      "/assets/js/bundle.js"
+[GIN] 2022/05/05 - 16:44:14 | 404 |     126.643µs |  172.30.113.140 | GET      "/assets/js/bootstrap.bundle.min.js.map"
+[GIN] 2022/05/05 - 16:44:14 | 200 |      497.62µs |  172.30.113.140 | GET      "/assets/webfonts/fa-solid-900.woff2"
+[GIN] 2022/05/05 - 16:44:14 | 200 |     112.252µs |  172.30.113.140 | GET      "/favicon.ico"
+[GIN] 2022/05/05 - 16:44:36 | 200 |    1.086754ms |  172.30.113.140 | GET      "/?room=vip"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     685.596µs |  172.30.113.140 | GET      "/assets/css/bootstrap.min.css"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     569.975µs |  172.30.113.140 | GET      "/assets/css/pro.fontawesome.css"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     166.482µs |  172.30.113.140 | GET      "/assets/css/styles.css"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     402.058µs |  172.30.113.140 | GET      "/assets/js/bootstrap.bundle.min.js"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     703.325µs |  172.30.113.140 | GET      "/assets/js/bundle.js"
+[GIN] 2022/05/05 - 16:44:36 | 200 |     325.107µs |  172.30.113.140 | GET      "/assets/webfonts/fa-solid-900.woff2"
+[GIN] 2022/05/05 - 16:44:36 | 200 |      147.61µs |  172.30.113.140 | GET      "/favicon.ico"
+[GIN] 2022/05/05 - 16:44:40 | 200 |     178.839µs |  172.30.113.140 | GET      "/assets/images/unknown-user.jpg"
+[GIN] 2022/05/05 - 16:44:40 | 200 |     325.841µs |  172.30.113.140 | GET      "/assets/images/host.png"
+[GIN] 2022/05/05 - 16:44:40 | 200 |     228.889µs |  172.30.113.140 | GET      "/assets/images/cast.png"

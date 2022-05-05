@@ -1,0 +1,65 @@
+nohup: failed to run command ‘/data/video-call/server/service’: No such file or directory
+2022-05-05T16:18:24.375+0700	INFO	livekit	routing/interfaces.go:101	using single-node routing
+one of key-file or keys must be provided in order to support a secure installation
+2022-05-05T16:22:01.269+0700	INFO	livekit	routing/interfaces.go:101	using single-node routing
+one of key-file or keys must be provided in order to support a secure installation
+2022-05-05T16:23:24.231+0700	INFO	livekit	routing/interfaces.go:101	using single-node routing
+one of key-file or keys must be provided in order to support a secure installation
+2022-05-05T16:25:46.501+0700	INFO	livekit	service/wire_gen.go:132	using multi-node routing via redis	{"addr": "127.0.0.1:6379"}
+2022-05-05T16:25:46.684+0700	INFO	livekit	service/server.go:195	starting LiveKit server	{"addr": ":7880", "nodeID": "ND_C3cQdf3t", "nodeIP": "180.148.132.238", "version": "0.15.7", "rtc.portTCP": 7881, "rtc.portICERange": [50000, 60000]}
+2022-05-05T16:26:05.806+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_4AZmyCmGXKwt", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:26:05.809+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "pID": "PA_DHz96BZBLF4f", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}
+2022-05-05T16:26:30.136+0700	INFO	livekit	service/wire_gen.go:132	using multi-node routing via redis	{"addr": "127.0.0.1:6379"}
+2022-05-05T16:26:30.295+0700	INFO	livekit	service/server.go:195	starting LiveKit server	{"addr": ":7880", "nodeID": "ND_C3cQdf3t", "nodeIP": "180.148.132.238", "version": "0.15.7", "rtc.portTCP": 7881, "rtc.portICERange": [50000, 60000]}
+2022-05-05T16:26:33.908+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_SYFEUFHC7XRB", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:26:33.913+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "pID": "PA_sSUGJCWh6FKo", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}
+2022-05-05T16:30:30.323+0700	INFO	livekit	service/wire_gen.go:132	using multi-node routing via redis	{"addr": "127.0.0.1:6379"}
+2022-05-05T16:30:30.483+0700	INFO	livekit	service/server.go:195	starting LiveKit server	{"addr": ":7880", "nodeID": "ND_C3cQdf3t", "nodeIP": "180.148.132.238", "version": "0.15.7", "rtc.portTCP": 7881, "rtc.portICERange": [50000, 60000]}
+2022-05-05T16:30:32.508+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_JVsTT8CSni5c", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:30:32.510+0700	ERROR	livekit	routing/redisrouter.go:259	could not handle new participant	{"room": "vip", "participant": "khang cty", "error": "could not restart participant", "errorVerbose": "could not restart participant\ngithub.com/livekit/livekit-server/pkg/service.(*RoomManager).StartSession\n\t/data/video-call/server/pkg/service/roommanager.go:223\ngithub.com/livekit/livekit-server/pkg/routing.(*RedisRouter).startParticipantRTC.func1\n\t/data/video-call/server/pkg/routing/redisrouter.go:251\nruntime.goexit\n\t/usr/local/go/src/runtime/asm_amd64.s:1571"}
+github.com/livekit/livekit-server/pkg/routing.(*RedisRouter).startParticipantRTC.func1
+	/data/video-call/server/pkg/routing/redisrouter.go:259
+2022-05-05T16:30:32.510+0700	INFO	livekit	service/rtcservice.go:230	source closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_JVsTT8CSni5c"}
+2022-05-05T16:30:32.510+0700	INFO	livekit	service/rtcservice.go:257	exit ws read loop for closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_JVsTT8CSni5c"}
+2022-05-05T16:30:32.510+0700	INFO	livekit	service/rtcservice.go:191	server closing WS connection	{"room": "vip", "participant": "khang cty", "connID": "CO_JVsTT8CSni5c"}
+2022-05-05T16:30:37.521+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_N94APo2YxYxh", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:30:37.523+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "pID": "PA_xaxYQkSPf58S", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}
+2022-05-05T16:30:41.607+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_2RD48kPVtXQZ", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:30:41.609+0700	INFO	livekit	service/rtcservice.go:230	source closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_N94APo2YxYxh"}
+2022-05-05T16:30:41.609+0700	INFO	livekit	service/rtcservice.go:257	exit ws read loop for closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_N94APo2YxYxh"}
+2022-05-05T16:30:41.609+0700	INFO	livekit	service/rtcservice.go:191	server closing WS connection	{"room": "vip", "participant": "khang cty", "connID": "CO_N94APo2YxYxh"}
+2022-05-05T16:33:15.283+0700	INFO	livekit	rtc/signalhandler.go:77	client leaving room	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "participant": "khang cty", "pID": "PA_xaxYQkSPf58S"}
+2022-05-05T16:33:15.284+0700	INFO	livekit	rtc/participant.go:595	closing participant	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "participant": "khang cty", "pID": "PA_xaxYQkSPf58S", "sendLeave": true}
+2022-05-05T16:33:15.284+0700	INFO	livekit	rtc/room.go:336	closing participant for removal	{"room": "vip", "roomID": "RM_KQjEhS92wRoz", "pID": "PA_xaxYQkSPf58S", "participant": "khang cty"}
+2022-05-05T16:33:15.285+0700	INFO	livekit	service/rtcservice.go:257	exit ws read loop for closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_2RD48kPVtXQZ"}
+2022-05-05T16:33:15.285+0700	INFO	livekit	service/rtcservice.go:191	server closing WS connection	{"room": "vip", "participant": "khang cty", "connID": "CO_2RD48kPVtXQZ"}
+2022-05-05T16:33:15.285+0700	INFO	livekit	service/rtcservice.go:230	source closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_2RD48kPVtXQZ"}
+2022-05-05T16:34:00.484+0700	INFO	livekit	rtc/room.go:489	closing room	{"room": "vip", "roomID": "RM_KQjEhS92wRoz"}
+2022-05-05T16:34:00.484+0700	INFO	livekit	service/roommanager.go:86	deleting room state	{"room": "vip"}
+2022-05-05T16:34:00.485+0700	INFO	livekit	service/roommanager.go:353	room closed
+2022-05-05T16:39:15.618+0700	INFO	livekit	service/wire_gen.go:132	using multi-node routing via redis	{"addr": "127.0.0.1:6379"}
+2022-05-05T16:39:15.792+0700	INFO	livekit	service/server.go:195	starting LiveKit server	{"addr": ":7880", "nodeID": "ND_C3cQdf3t", "nodeIP": "180.148.132.238", "version": "0.15.7", "rtc.portTCP": 7881, "rtc.portICERange": [50000, 60000]}
+2022-05-05T16:41:00.228+0700	INFO	livekit	service/wire_gen.go:132	using multi-node routing via redis	{"addr": "127.0.0.1:6379"}
+2022-05-05T16:41:00.395+0700	INFO	livekit	service/server.go:195	starting LiveKit server	{"addr": ":7880", "nodeID": "ND_C3cQdf3t", "nodeIP": "180.148.132.238", "version": "0.15.7", "rtc.portTCP": 7881, "rtc.portICERange": [50000, 60000]}
+2022-05-05T16:42:22.966+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_f8pxN5AHBSRW", "roomID": "RM_TZbEBGzEhhSQ"}
+2022-05-05T16:42:22.971+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ", "pID": "PA_W6TZfnmqRoTd", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}
+2022-05-05T16:42:43.525+0700	INFO	livekit	service/roommanager.go:462	removing participant	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ", "participant": "khang cty", "pID": "PA_W6TZfnmqRoTd"}
+2022-05-05T16:42:43.525+0700	INFO	livekit	rtc/room.go:336	closing participant for removal	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ", "pID": "PA_W6TZfnmqRoTd", "participant": "khang cty"}
+2022-05-05T16:42:43.525+0700	INFO	livekit	rtc/participant.go:595	closing participant	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ", "participant": "khang cty", "pID": "PA_W6TZfnmqRoTd", "sendLeave": true}
+2022-05-05T16:42:43.526+0700	INFO	livekit	service/rtcservice.go:230	source closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_f8pxN5AHBSRW"}
+2022-05-05T16:42:43.526+0700	INFO	livekit	service/rtcservice.go:257	exit ws read loop for closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_f8pxN5AHBSRW"}
+2022-05-05T16:42:43.526+0700	INFO	livekit	service/rtcservice.go:191	server closing WS connection	{"room": "vip", "participant": "khang cty", "connID": "CO_f8pxN5AHBSRW"}
+2022-05-05T16:42:48.835+0700	INFO	livekit	service/roommanager.go:491	deleting room	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ"}
+2022-05-05T16:42:48.835+0700	INFO	livekit	rtc/room.go:489	closing room	{"room": "vip", "roomID": "RM_TZbEBGzEhhSQ"}
+2022-05-05T16:42:48.835+0700	INFO	livekit	service/roommanager.go:86	deleting room state	{"room": "vip"}
+2022-05-05T16:42:48.836+0700	INFO	livekit	service/roommanager.go:353	room closed
+2022-05-05T16:42:55.033+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_EoQtUHSJg7Up", "roomID": "RM_RmGZPnLbSJKT"}
+2022-05-05T16:42:55.036+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_RmGZPnLbSJKT", "pID": "PA_5uXNtPvW8QZL", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}
+2022-05-05T16:44:14.684+0700	INFO	livekit	rtc/signalhandler.go:77	client leaving room	{"room": "vip", "roomID": "RM_RmGZPnLbSJKT", "participant": "khang cty", "pID": "PA_5uXNtPvW8QZL"}
+2022-05-05T16:44:14.685+0700	INFO	livekit	rtc/participant.go:595	closing participant	{"room": "vip", "roomID": "RM_RmGZPnLbSJKT", "participant": "khang cty", "pID": "PA_5uXNtPvW8QZL", "sendLeave": true}
+2022-05-05T16:44:14.685+0700	INFO	livekit	rtc/room.go:336	closing participant for removal	{"room": "vip", "roomID": "RM_RmGZPnLbSJKT", "pID": "PA_5uXNtPvW8QZL", "participant": "khang cty"}
+2022-05-05T16:44:14.685+0700	INFO	livekit	service/rtcservice.go:230	source closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_EoQtUHSJg7Up"}
+2022-05-05T16:44:14.685+0700	INFO	livekit	service/rtcservice.go:257	exit ws read loop for closed connection	{"room": "vip", "participant": "khang cty", "connID": "CO_EoQtUHSJg7Up"}
+2022-05-05T16:44:14.685+0700	INFO	livekit	service/rtcservice.go:191	server closing WS connection	{"room": "vip", "participant": "khang cty", "connID": "CO_EoQtUHSJg7Up"}
+2022-05-05T16:44:40.350+0700	INFO	livekit	service/rtcservice.go:211	new client WS connected	{"room": "vip", "participant": "khang cty", "connID": "CO_jhw8wUfhRTWU", "roomID": "RM_RmGZPnLbSJKT"}
+2022-05-05T16:44:40.353+0700	INFO	livekit	rtc/room.go:227	new participant joined	{"room": "vip", "roomID": "RM_RmGZPnLbSJKT", "pID": "PA_dCoxaRQtMssj", "participant": "khang cty", "protocol": 7, "options": {"AutoSubscribe":true}}

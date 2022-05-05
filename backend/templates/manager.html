@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0">
+    
+    <title>Manager</title>
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css"
+        integrity="sha384-AYmEC3Yw5cVb3ZcuHtOA93w35dYTsvhLPVnYs9eStHfGJvOvKxVfELGroGkvsg+p" crossorigin="anonymous" />
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/select2.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/bootstrap-datetimepicker.min.css">
+    <link rel="stylesheet" type="text/css" href="/manager/assets/css/style.css">
+    <!--[if lt IE 9]>
+		<script src="/manager/assets/js/html5shiv.min.js"></script>
+		<script src="/manager/assets/js/respond.min.js"></script>
+	<![endif]-->
+    {{template "style"}}
+</head>
+
+<body>
+    <div class="main-wrapper">
+        {{template "menu" .nav}}
+        <div class="page-wrapper">
+            <div class="content">
+                <div class="row">
+                    <div class="col-sm-12">
+                        <h4 class="page-title">List all rooms</h4>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="table-responsive">
+                            <table class="table table-striped custom-table mb-0 datatable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Room name</th>
+                                        <th>Creation time</th>
+                                        <th>Enabled codecs</th>
+                                        <th>Num participants</th>
+                                        <th class="text-center">Status</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .listRoom}}
+                                    <tr>
+                                        <td>
+                                            <a href="/manager/room?name={{.Name}}"><strong>{{.ID}}</strong></a>
+                                        </td>
+                                        <td>{{.Name}}</td>
+                                        <td>{{.CreationTime}}</td>
+                                        <td>{{.EnabledCodecs}}</td>
+                                        <td>{{.NumParticipants}}</td>
+                                        <td class="text-center">
+                                            {{if gt .NumParticipants 0}}
+                                            <span class="custom-badge status-green">On meeting</span>
+                                            {{else}}
+                                            <span class="custom-badge status-orange">Waiting for members</span>
+                                            {{end}}
+                                        </td>
+                                        <td class="text-right">
+                                            <a class="btn btn-danger" href="/manager/room/kick-out-all?room-name={{.Name}}">
+                                                <i class="fa fa-trash-o m-r-5"></i> Kick out all
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="sidebar-overlay" data-reff=""></div>
+    <script src="/manager/assets/js/jquery-3.2.1.min.js"></script>
+	<script src="/manager/assets/js/popper.min.js"></script>
+    <script src="/manager/assets/js/bootstrap.min.js"></script>
+    <script src="/manager/assets/js/jquery.dataTables.min.js"></script>
+    <script src="/manager/assets/js/dataTables.bootstrap4.min.js"></script>
+    <script src="/manager/assets/js/select2.min.js"></script>
+    <script src="/manager/assets/js/moment.min.js"></script>
+    <script src="/manager/assets/js/bootstrap-datetimepicker.min.js"></script>
+    <script src="/manager/assets/js/jquery.slimscroll.js"></script>
+    <script src="/manager/assets/js/app.js"></script>
+</body>
+
+</html>
