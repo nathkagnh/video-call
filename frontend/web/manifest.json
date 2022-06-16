@@ -1,0 +1,31 @@
+{
+    "name": "FO Meeting",
+    "short_name": "FO Meeting",
+    "start_url": "/",
+    "display": "fullscreen",
+    "orientation": "any",
+    "background_color": "#1c1f2d",
+    "theme_color": "#1c1f2d",
+    "icons": [
+      {
+        "src": "/assets/img/conference.png",
+        "type": "image/png",
+        "sizes": "512x512"
+      },
+      {
+        "src": "/assets/img/conference.png",
+        "type": "image/png",
+        "sizes": "512x512",
+        "purpose": "maskable"
+        }
+    ],
+    "description": "Connect anywhere anytime",
+    "lang": "en",
+    "prefer_related_applications": true,
+    "scope_url": "https://meeting.fptonline.net/",
+        "intent_filters": {
+        "scope_url_scheme": "https",
+        "scope_url_host": "meeting.fptonline.net",
+        "scope_url_path": "/"
+    }
+  }

@@ -1,0 +1,56 @@
+{{define "buttons"}}
+<div class="group-main-button show" onmouseleave="appActions.hideRoomButtons()">
+    <button type="button" disabled class="item voice tooltip" id="toggle-audio-button" onclick="appActions.toggleAudio()">
+        <i class="icon-Voiceoff"></i>
+        <span class="tooltiptext tooltip-top">Turn on Mic</span>
+    </button>
+    <button type="button" disabled class="item video tooltip" id="toggle-video-button" onclick="appActions.toggleVideo()">
+        <i class="icon-Videooff"></i>
+        <span class="tooltiptext tooltip-top">Turn on Camera</span>
+    </button>
+    <button type="button" disabled class="item share-screen tooltip" id="share-screen-button" onclick="appActions.shareScreen()">
+        <i class="icon-sharescreen"></i>
+        <span class="tooltiptext tooltip-top">Present now</span>
+    </button>
+    <button type="button" class="item chat tooltip" id="chat-btn" onclick="appActions.toggleChat()">
+        <i class="icon-Chat"></i>
+        <span class="tooltiptext tooltip-top">Chats</span>
+    </button>
+    <div class="item settings tooltip" id="settings-btn">
+        <i class="icon-Setting"></i>
+        <div class="box-setting">
+            <div class="box-setting__head">
+                <h4 class="title">Settings</h4>
+            </div>
+            <div class="box-setting__content">
+                <div class="box-dropdown">
+                    <select id="video-input" class="box-dropdown__inner"
+                        onchange="appActions.handleDeviceSelected(event)">
+                        <option selected>Video Input (default)</option>
+                    </select>
+                </div>
+                <div class="box-dropdown">
+                    <select id="audio-input" class="box-dropdown__inner"
+                        onchange="appActions.handleDeviceSelected(event)">
+                        <option selected>Audio Input (default)</option>
+                    </select>
+                </div>
+                <div class="box-dropdown">
+                    <select id="audio-output" class="box-dropdown__inner"
+                        onchange="appActions.handleDeviceSelected(event)">
+                        <option selected>Audio Output (default)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <span class="tooltiptext tooltip-top">Settings</span>
+    </div>
+    <button type="button" class="btn end-meeting open-popup-link" onclick="appActions.disconnectRoom()">
+        <i class="icon-endcall"></i>
+        <span>LEAVE</span>
+    </button>
+    <button type="button" class="icon show-hide">
+        <i class="icon-arrow"></i>
+    </button>
+</div>
+{{end}}

@@ -1,6 +1,7 @@
 import log from '../../logger';
 import { TrackEvent } from '../events';
 import { AudioSenderStats, computeBitrate, monitorFrequency } from '../stats';
+import { isWeb } from '../utils';
 import LocalTrack from './LocalTrack';
 import { AudioCaptureOptions } from './options';
 import { Track } from './Track';
@@ -34,7 +35,7 @@ export default class LocalAudioTrack extends LocalTrack {
     if (this.source === Track.Source.Microphone && this.stopOnMute) {
       log.debug('stopping mic track');
       // also stop the track, so that microphone indicator is turned off
-      this.mediaStreamTrack.stop();
+      this._mediaStreamTrack.stop();
     }
     await super.mute();
     return this;
@@ -68,6 +69,9 @@ export default class LocalAudioTrack extends LocalTrack {
 
   /* @internal */
   startMonitor() {
+    if (!isWeb()) {
+      return;
+    }
     setTimeout(() => {
       this.monitorSender();
     }, monitorFrequency);
@@ -83,7 +87,7 @@ export default class LocalAudioTrack extends LocalTrack {
     try {
       stats = await this.getSenderStats();
     } catch (e) {
-      log.error('could not get audio sender stats', e);
+      log.error('could not get audio sender stats', { error: e });
       return;
     }
 

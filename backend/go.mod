@@ -1,4 +1,4 @@
-module backend-video-call.vnexpress.net
+module backend-meeting.fptonline.net
 
 go 1.18
 

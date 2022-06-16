@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"backend-video-call.vnexpress.net/internal/config"
-	"backend-video-call.vnexpress.net/internal/stream"
+	"backend-meeting.fptonline.net/internal/config"
+	"backend-meeting.fptonline.net/internal/stream"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/livekit/protocol/livekit"
@@ -19,6 +19,7 @@ import (
 type RoomRender struct {
 	ID              string `json:"sid"`
 	Name            string `json:"name"`
+	RealName        string `json:"real_name"`
 	CreationTime    string
 	EnabledCodecs   string
 	NumParticipants int32 `json:"num_participants"`
@@ -38,6 +39,10 @@ type ParticipantRender struct {
 
 	MicrophoneMuted    bool
 	Microphone_TrackID string
+}
+
+type RoomMetaData struct {
+	RealName string `json:"real_name"`
 }
 
 var wsupgrader = websocket.Upgrader{
@@ -95,9 +100,24 @@ func main() {
 			c.Redirect(http.StatusFound, "/manager")
 		}
 
+		roomDetail, err := getRoomDetail(roomName, serverConfig)
+		if err != nil {
+			c.Redirect(http.StatusFound, "/manager")
+			return
+		}
+		metaData := RoomMetaData{}
+		err = json.Unmarshal([]byte(roomDetail.Metadata), &metaData)
+		if err != nil {
+			log.Printf("decode metadata error: %v", err)
+		}
+		realName := roomName
+		if metaData.RealName != "" {
+			realName = metaData.RealName
+		}
+
 		c.HTML(http.StatusOK, "room.html", gin.H{
 			"nav":             "rooms",
-			"roomName":        roomName,
+			"roomName":        realName,
 			"listParticipant": listParticipant,
 		})
 	})
@@ -287,9 +307,20 @@ func getListRoom(serverConfig config.LivekitServerConfig) ([]RoomRender, error) 
 
 	rooms := []RoomRender{}
 	for _, room := range res.Rooms {
+		metaData := RoomMetaData{}
+		err := json.Unmarshal([]byte(room.Metadata), &metaData)
+		if err != nil {
+			log.Printf("decode metadata error: %v", err)
+		}
+		realName := room.Name
+		if metaData.RealName != "" {
+			realName = metaData.RealName
+		}
+
 		roomRender := RoomRender{
 			ID:              room.Sid,
 			Name:            room.Name,
+			RealName:        realName,
 			NumParticipants: int32(room.NumParticipants),
 		}
 		roomRender.CreationTime = time.Unix(int64(room.CreationTime), 0).Format(time.RFC3339)
@@ -308,6 +339,18 @@ func getListRoom(serverConfig config.LivekitServerConfig) ([]RoomRender, error) 
 	return rooms, nil
 }
 
+func getRoomDetail(room string, serverConfig config.LivekitServerConfig) (*livekit.Room, error) {
+	roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
+	res, err := roomClient.ListRooms(context.Background(), &livekit.ListRoomsRequest{
+		Names: []string{room},
+	})
+	if err != nil || len(res.Rooms) == 0 {
+		return nil, err
+	}
+
+	return res.Rooms[0], err
+}
+
 func getListParticipant(roomName string, serverConfig config.LivekitServerConfig) ([]ParticipantRender, error) {
 	roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
 	res, err := roomClient.ListParticipants(context.Background(), &livekit.ListParticipantsRequest{
@@ -322,7 +365,7 @@ func getListParticipant(roomName string, serverConfig config.LivekitServerConfig
 	for _, participant := range res.Participants {
 		participantRender := ParticipantRender{
 			ID:   participant.Sid,
-			Name: participant.Identity,
+			Name: participant.Name,
 		}
 		participantRender.JoinedAt = time.Unix(int64(participant.JoinedAt), 0).Format(time.RFC3339)
 

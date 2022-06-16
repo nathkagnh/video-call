@@ -1,0 +1,19 @@
+{{define "room"}}
+<main class="main page-video-call hide room-partition">
+    <div class="container">
+        <div class="wrap-box-frame" id="layout-1">
+            <div class="wrap-box-frame__inner">
+                <div class="box-frame" id="participants-area"></div>
+            </div>
+            {{template "chat"}}
+        </div>
+        <div class="wrap-video full-screen hide" id="layout-2">
+            <div class="box-video host" id="screenshare-area"></div>
+            <div class="box-video__outer-scroll scrollbar-outer">
+                <div class="box-video list" id="participants-area-2"></div>
+            </div>
+        </div>
+    </div>
+    {{template "buttons"}}
+</main>
+{{end}}

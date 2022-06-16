@@ -29,9 +29,14 @@ export enum RoomEvent {
   /**
    * Whenever the connection state of the room changes
    *
-   * args: ([[RoomState]])
+   * args: ([[ConnectionState]])
    */
-  StateChanged = 'stateChanged',
+  ConnectionStateChanged = 'connectionStateChanged',
+
+  /**
+   * @deprecated StateChanged has been renamed to ConnectionStateChanged
+   */
+  StateChanged = 'connectionStateChanged',
 
   /**
    * When input or output devices on the machine have changed.
@@ -140,12 +145,6 @@ export enum RoomEvent {
   ActiveSpeakersChanged = 'activeSpeakersChanged',
 
   /**
-   * @deprecated Use ParticipantMetadataChanged instead
-   * @internal
-   */
-  MetadataChanged = 'metadataChanged',
-
-  /**
    * Participant metadata is a simple way for app-specific state to be pushed to
    * all users.
    * When RoomService.UpdateParticipantMetadata is called to change a participant's
@@ -231,6 +230,11 @@ export enum RoomEvent {
    * args: (prevPermissions: [[ParticipantPermission]], participant: [[Participant]])
    */
   ParticipantPermissionsChanged = 'participantPermissionsChanged',
+
+  /**
+   * Signal connected, can publish tracks.
+   */
+  SignalConnected = 'signalConnected',
 }
 
 export enum ParticipantEvent {
@@ -307,12 +311,6 @@ export enum ParticipantEvent {
    * args: ([[LocalTrackPublication]])
    */
   LocalTrackUnpublished = 'localTrackUnpublished',
-
-  /**
-   * @deprecated Use ParticipantMetadataChanged instead
-   * @internal
-   */
-  MetadataChanged = 'metadataChanged',
 
   /**
    * Participant metadata is a simple way for app-specific state to be pushed to

@@ -48,6 +48,10 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
 
   rtcConfig: RTCConfiguration = {};
 
+  get isClosed() {
+    return this._isClosed;
+  }
+
   private lossyDC?: RTCDataChannel;
 
   // @ts-ignore noUnusedLocals
@@ -64,7 +68,7 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
 
   private pcState: PCState = PCState.New;
 
-  private isClosed: boolean = true;
+  private _isClosed: boolean = true;
 
   private pendingTrackResolvers: { [key: string]: (info: TrackInfo) => void } = {};
 
@@ -94,13 +98,18 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
     this.client = new SignalClient();
   }
 
-  async join(url: string, token: string, opts?: SignalOptions): Promise<JoinResponse> {
+  async join(
+    url: string,
+    token: string,
+    opts?: SignalOptions,
+    abortSignal?: AbortSignal,
+  ): Promise<JoinResponse> {
     this.url = url;
     this.token = token;
     this.signalOpts = opts;
 
-    const joinResponse = await this.client.join(url, token, opts);
-    this.isClosed = false;
+    const joinResponse = await this.client.join(url, token, opts, abortSignal);
+    this._isClosed = false;
 
     this.subscriberPrimary = joinResponse.subscriberPrimary;
     if (!this.publisher) {
@@ -117,7 +126,7 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
   }
 
   close() {
-    this.isClosed = true;
+    this._isClosed = true;
 
     this.removeAllListeners();
     if (this.publisher && this.publisher.pc.signalingState !== 'closed') {
@@ -220,7 +229,7 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
     }
     this.primaryPC = primaryPC;
     primaryPC.onconnectionstatechange = async () => {
-      log.trace('connection state changed', {
+      log.debug('primary PC state changed', {
         state: primaryPC.connectionState,
       });
       if (primaryPC.connectionState === 'connected') {
@@ -244,6 +253,9 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
       }
     };
     secondaryPC.onconnectionstatechange = async () => {
+      log.debug('secondary PC state changed', {
+        state: secondaryPC.connectionState,
+      });
       // also reconnect if secondary peerconnection fails
       if (secondaryPC.connectionState === 'failed') {
         this.handleDisconnect('secondary peerconnection');
@@ -403,7 +415,7 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
   // continues to work, we can reconnect to websocket to continue the session
   // after a number of retries, we'll close and give up permanently
   private handleDisconnect = (connection: string) => {
-    if (this.isClosed) {
+    if (this._isClosed) {
       return;
     }
     log.debug(`${connection} disconnected`);
@@ -414,12 +426,15 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
 
     const delay = this.reconnectAttempts * this.reconnectAttempts * 300;
     setTimeout(async () => {
-      if (this.isClosed) {
+      if (this._isClosed) {
         return;
       }
       if (
         isFireFox() || // TODO remove once clientConfiguration handles firefox case server side
-        this.clientConfiguration?.resumeConnection === ClientConfigSetting.DISABLED
+        this.clientConfiguration?.resumeConnection === ClientConfigSetting.DISABLED ||
+        // signaling state could change to closed due to hardware sleep
+        // those connections cannot be resumed
+        (this.primaryPC?.signalingState ?? 'closed') === 'closed'
       ) {
         this.fullReconnectOnNext = true;
       }
@@ -434,6 +449,7 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
         this.fullReconnectOnNext = false;
       } catch (e) {
         this.reconnectAttempts += 1;
+        let reconnectRequired = false;
         let recoverable = true;
         if (e instanceof UnexpectedConnectionState) {
           log.debug('received unrecoverable error', { error: e });
@@ -441,7 +457,14 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
           recoverable = false;
         } else if (!(e instanceof SignalReconnectError)) {
           // cannot resume
+          reconnectRequired = true;
+        }
+
+        // when we flip from resume to reconnect, we need to reset reconnectAttempts
+        // this is needed to fire the right reconnecting events
+        if (reconnectRequired && !this.fullReconnectOnNext) {
           this.fullReconnectOnNext = true;
+          this.reconnectAttempts = 0;
         }
 
         const duration = Date.now() - this.reconnectStart;
@@ -473,6 +496,10 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
       this.emit(EngineEvent.Restarting);
     }
 
+    if (this.client.isConnected) {
+      this.client.sendLeave();
+    }
+    this.client.close();
     this.primaryPC = undefined;
     this.publisher?.close();
     this.publisher = undefined;

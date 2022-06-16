@@ -3,8 +3,8 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.js",
-    "web/**/*.ts",
-    "web/**/*.js",
+    "example/**/*.ts",
+    "example/**/*.js",
     ".eslintrc.js",
     "jest.config.js",
     "rollup.config.js",

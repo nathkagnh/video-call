@@ -12,7 +12,8 @@ export interface TrackPublishDefaults {
   screenShareEncoding?: VideoEncoding;
 
   /**
-   * codec, defaults to vp8
+   * codec, defaults to vp8; for svc codecs, auto enable vp8
+   * as backup. (TBD)
    */
   videoCodec?: VideoCodec;
 
@@ -32,6 +33,12 @@ export interface TrackPublishDefaults {
    * at various resolutions.
    */
   simulcast?: boolean;
+
+  /**
+   * scalability mode for svc codecs, defaults to 'L3T3'.
+   * for svc codecs, simulcast is disabled.
+   */
+  scalabilityMode?: ScalabilityMode;
 
   /**
    * custom video simulcast layers for camera tracks, defaults to h180, h360, h540
@@ -200,6 +207,11 @@ export interface AudioPreset {
 
 export type VideoCodec = 'vp8' | 'h264' | 'av1' | 'vp9';
 
+/**
+ * scalability modes for svc, only supprot l3t3 now.
+ */
+export type ScalabilityMode = 'L3T3';
+
 export namespace AudioPresets {
   export const telephone: AudioPreset = {
     maxBitrate: 12_000,
@@ -221,20 +233,10 @@ export const VideoPresets = {
   h216: new VideoPreset(384, 216, 180_000, 15),
   h360: new VideoPreset(640, 360, 300_000, 20),
   h540: new VideoPreset(960, 540, 600_000, 25),
-  h720: new VideoPreset(1280, 720, 2_000_000, 30),
+  h720: new VideoPreset(1280, 720, 1_700_000, 30),
   h1080: new VideoPreset(1920, 1080, 3_000_000, 30),
   h1440: new VideoPreset(2560, 1440, 5_000_000, 30),
   h2160: new VideoPreset(3840, 2160, 8_000_000, 30),
-  /** @deprecated */
-  qvga: new VideoPreset(320, 180, 120_000, 10),
-  /** @deprecated */
-  vga: new VideoPreset(640, 360, 300_000, 20),
-  /** @deprecated */
-  qhd: new VideoPreset(960, 540, 600_000, 25),
-  /** @deprecated */
-  hd: new VideoPreset(1280, 720, 2_000_000, 30),
-  /** @deprecated */
-  fhd: new VideoPreset(1920, 1080, 3_000_000, 30),
 } as const;
 
 /**
@@ -250,16 +252,6 @@ export const VideoPresets43 = {
   h720: new VideoPreset(960, 720, 1_500_000, 30),
   h1080: new VideoPreset(1440, 1080, 2_500_000, 30),
   h1440: new VideoPreset(1920, 1440, 3_500_000, 30),
-  /** @deprecated */
-  qvga: new VideoPreset(240, 180, 90_000, 10),
-  /** @deprecated */
-  vga: new VideoPreset(480, 360, 225_000, 20),
-  /** @deprecated */
-  qhd: new VideoPreset(720, 540, 450_000, 25),
-  /** @deprecated */
-  hd: new VideoPreset(960, 720, 1_500_000, 30),
-  /** @deprecated */
-  fhd: new VideoPreset(1440, 1080, 2_800_000, 30),
 } as const;
 
 export const ScreenSharePresets = {
@@ -268,14 +260,4 @@ export const ScreenSharePresets = {
   h720fps15: new VideoPreset(1280, 720, 1_000_000, 15),
   h1080fps15: new VideoPreset(1920, 1080, 1_500_000, 15),
   h1080fps30: new VideoPreset(1920, 1080, 3_000_000, 30),
-  /** @deprecated */
-  vga: new VideoPreset(640, 360, 200_000, 3),
-  /** @deprecated */
-  hd_8: new VideoPreset(1280, 720, 400_000, 5),
-  /** @deprecated */
-  hd_15: new VideoPreset(1280, 720, 1_000_000, 15),
-  /** @deprecated */
-  fhd_15: new VideoPreset(1920, 1080, 1_500_000, 15),
-  /** @deprecated */
-  fhd_30: new VideoPreset(1920, 1080, 3_000_000, 30),
 } as const;

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"backend-video-call.vnexpress.net/internal/config"
+	"backend-meeting.fptonline.net/internal/config"
 	"github.com/gorilla/websocket"
 	lksdk "github.com/livekit/server-sdk-go"
 )

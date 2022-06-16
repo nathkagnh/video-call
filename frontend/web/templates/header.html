@@ -1,0 +1,27 @@
+{{define "header"}}
+<header class="section top-header hide room-partition">
+    <div class="container">
+        <div class="info-room">
+            <div class="user">
+                <i class="icon-user"></i>
+                <span class="person" id="participants-counter"> 1 persons</span>
+                <div class="box-list-person">
+                    <div class="title">1 persons</div>
+                </div>
+            </div>
+            <div class="box-type-room">
+                <div class="type-room" id="room-name"></div>
+                <div class="time">
+                    <span id="room-duration" data-start="{{.}}">00:00:00</span>
+                </div>
+            </div>
+        </div>
+        <div class="header-option__right">
+            <a href="javascript:void(0);" class="share-link" onclick="appActions.copyMeetingLink()">
+                <i class="icon-link"></i>
+                <span>Copy meeting link</span>
+            </a>
+        </div>
+    </div>
+</header>
+{{end}}

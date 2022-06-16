@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/livekit/protocol/auth"
 	livekit "github.com/livekit/protocol/livekit"
@@ -18,34 +22,151 @@ type LivekitServerConfig struct {
 	ApiSecret string
 }
 
-func main() {
-	r := gin.Default()
+type RoomMetaData struct {
+	RealName string `json:"real_name"`
+}
 
+type ParticipantMetaData struct {
+	Avatar string `json:"avatar"`
+}
+
+type JoinTokenPostData struct {
+	UserName string `json:"user_name"`
+	Avatar   string `json:"avatar"`
+	Room     string `json:"room"`
+	Create   bool   `json:"create"`
+	Passcode string `json:"passcode"`
+}
+
+func main() {
 	serverConfig := LivekitServerConfig{
 		Host:      "http://127.0.0.1:7880",
 		ApiKey:    "key_62737293bad5e",
 		ApiSecret: "627372c4b4756",
 	}
 
-	r.GET("/api/get-join-token", func(c *gin.Context) {
-		userName := c.Query("user-name")
-		roomName := c.Query("room-name")
-		if userName == "" || roomName == "" {
+	r := gin.Default()
+
+	r.POST("/api/get-join-token", func(c *gin.Context) {
+		var postData JoinTokenPostData
+		if c.ShouldBind(&postData) != nil {
 			c.JSON(200, gin.H{
 				"error":   1,
-				"message": "Your name or Room name cannot be empty",
+				"message": "Invalid data",
 			})
 			return
+		}
+		if postData.UserName == "" || (postData.Room == "" && !postData.Create) {
+			c.JSON(200, gin.H{
+				"error":   1,
+				"message": "Invalid data",
+			})
+			return
+		}
+
+		room := postData.Room
+		if postData.Create {
+			room = uuid.New().String()
+
+			metaData := RoomMetaData{
+				RealName: postData.Room,
+			}
+			metaDataJsonString, err := json.Marshal(metaData)
+			if err != nil {
+				log.Printf("encode meta data error: %v", err)
+			}
+
+			roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
+			_, err = roomClient.CreateRoom(context.Background(), &livekit.CreateRoomRequest{
+				Name:     room,
+				Metadata: string(metaDataJsonString),
+			})
+			if err != nil {
+				log.Printf("create room error: %v", err)
+				c.JSON(200, gin.H{
+					"error":   1,
+					"message": "Create room error",
+				})
+				return
+			}
+
+			// save passcode to redis
+			if postData.Create && postData.Passcode != "" {
+				var ctx = context.Background()
+				rdb := redis.NewClient(&redis.Options{
+					Addr:     "127.0.0.1:6379",
+					Password: "",
+					DB:       0,
+				})
+				key := "room_info:" + room
+				passcode, err := bcrypt.GenerateFromPassword([]byte(postData.Passcode), 14)
+				if err != nil {
+					log.Printf("create room error: %v", err)
+					c.JSON(200, gin.H{
+						"error":   1,
+						"message": "Create room error",
+					})
+				}
+				err = rdb.Set(ctx, key, string(passcode), 0).Err()
+				if err != nil {
+					log.Printf("create room error: %v", err)
+					c.JSON(200, gin.H{
+						"error":   1,
+						"message": "Create room error",
+					})
+				}
+			}
+		}
+
+		// check passcode
+		if !postData.Create {
+			var ctx = context.Background()
+			rdb := redis.NewClient(&redis.Options{
+				Addr:     "127.0.0.1:6379",
+				Password: "",
+				DB:       0,
+			})
+			key := "room_info:" + room
+			passcode, err := rdb.Get(ctx, key).Result()
+			if err != nil && err != redis.Nil {
+				log.Printf("create room error: %v", err)
+				c.JSON(200, gin.H{
+					"error":   1,
+					"message": "Create room error",
+				})
+			}
+			if passcode != "" {
+				err = bcrypt.CompareHashAndPassword([]byte(passcode), []byte(postData.Passcode))
+				if err != nil {
+					c.JSON(200, gin.H{
+						"error":   1,
+						"message": "Passcode invalid",
+					})
+					return
+				}
+			}
 		}
 
 		at := auth.NewAccessToken(serverConfig.ApiKey, serverConfig.ApiSecret)
 		grant := &auth.VideoGrant{
 			RoomJoin: true,
-			Room:     roomName,
+			Room:     room,
 		}
 		at.AddGrant(grant).
-			SetIdentity(userName).
+			SetIdentity(uuid.New().String()).
+			SetName(postData.UserName).
 			SetValidFor(time.Hour)
+		if postData.Avatar != "" {
+			metaData := ParticipantMetaData{
+				Avatar: postData.Avatar,
+			}
+			metaDataJsonString, err := json.Marshal(metaData)
+			if err != nil {
+				log.Printf("encode meta data error: %v", err)
+			}
+
+			at.SetMetadata(string(metaDataJsonString))
+		}
 
 		token, err := at.ToJWT()
 		if err != nil {
@@ -59,6 +180,7 @@ func main() {
 
 		c.JSON(200, gin.H{
 			"token": token,
+			"room":  room,
 		})
 	})
 
@@ -78,7 +200,7 @@ func main() {
 		})
 		log.Printf("roon info: %v", room)
 		if err != nil {
-			log.Panicf("create room error: %v", err)
+			log.Printf("create room error: %v", err)
 			c.JSON(200, gin.H{
 				"error":   1,
 				"message": "create room error",
@@ -111,6 +233,35 @@ func main() {
 		}
 
 		c.JSON(200, res.Rooms)
+	})
+
+	r.GET("/api/update-room", func(c *gin.Context) {
+		roomName := c.Query("room-name")
+		if roomName == "" {
+			c.JSON(200, gin.H{
+				"error":   1,
+				"message": "Room name cannot be empty",
+			})
+			return
+		}
+
+		roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
+		_, err := roomClient.UpdateRoomMetadata(context.Background(), &livekit.UpdateRoomMetadataRequest{
+			Room:     roomName,
+			Metadata: "dsads dsa dsadsa das dsad",
+		})
+		if err != nil {
+			log.Printf("update room error: %v", err)
+			c.JSON(200, gin.H{
+				"error":   1,
+				"message": "update room error",
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"ok": 1,
+		})
 	})
 
 	r.GET("/api/delete-room", func(c *gin.Context) {

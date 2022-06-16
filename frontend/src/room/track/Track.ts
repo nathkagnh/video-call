@@ -5,6 +5,8 @@ import { StreamState as ProtoStreamState } from '../../proto/livekit_rtc';
 import { TrackEvent } from '../events';
 import { isFireFox, isSafari, isWeb } from '../utils';
 
+const BACKGROUND_REACTION_DELAY = 5000;
+
 // keep old audio elements when detached, we would re-use them since on iOS
 // Safari tracks which audio elements have been "blessed" by the user.
 const recycledElements: Array<HTMLAudioElement> = [];
@@ -12,29 +14,34 @@ const recycledElements: Array<HTMLAudioElement> = [];
 export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEventCallbacks>) {
   kind: Track.Kind;
 
-  mediaStream?: MediaStream;
-
-  mediaStreamTrack: MediaStreamTrack;
-
   attachedElements: HTMLMediaElement[] = [];
 
   isMuted: boolean = false;
 
   source: Track.Source;
 
-  protected isInBackground: boolean;
-
   /**
    * sid is set after track is published to server, or if it's a remote track
    */
   sid?: Track.SID;
+
+  /**
+   * @internal
+   */
+  mediaStream?: MediaStream;
+
+  protected _mediaStreamTrack: MediaStreamTrack;
+
+  protected isInBackground: boolean;
+
+  private backgroundTimeout: ReturnType<typeof setTimeout> | undefined;
 
   protected _currentBitrate: number = 0;
 
   protected constructor(mediaTrack: MediaStreamTrack, kind: Track.Kind) {
     super();
     this.kind = kind;
-    this.mediaStreamTrack = mediaTrack;
+    this._mediaStreamTrack = mediaTrack;
     this.source = Track.Source.Unknown;
     if (isWeb()) {
       this.isInBackground = document.visibilityState === 'hidden';
@@ -47,6 +54,10 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
   /** current receive bits per second */
   get currentBitrate(): number {
     return this._currentBitrate;
+  }
+
+  get mediaStreamTrack() {
+    return this._mediaStreamTrack;
   }
 
   /**
@@ -87,7 +98,7 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
     // even if we believe it's already attached to the element, it's possible
     // the element's srcObject was set to something else out of band.
     // we'll want to re-attach it in that case
-    attachToElement(this.mediaStreamTrack, element);
+    attachToElement(this._mediaStreamTrack, element);
 
     if (element instanceof HTMLAudioElement) {
       // manually play audio to detect audio playback status
@@ -118,7 +129,7 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
   detach(element?: HTMLMediaElement): HTMLMediaElement | HTMLMediaElement[] {
     // detach from a single element
     if (element) {
-      detachTrack(this.mediaStreamTrack, element);
+      detachTrack(this._mediaStreamTrack, element);
       const idx = this.attachedElements.indexOf(element);
       if (idx >= 0) {
         this.attachedElements.splice(idx, 1);
@@ -130,7 +141,7 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
 
     const detached: HTMLMediaElement[] = [];
     this.attachedElements.forEach((elm) => {
-      detachTrack(this.mediaStreamTrack, elm);
+      detachTrack(this._mediaStreamTrack, elm);
       detached.push(elm);
       this.recycleElement(elm);
       this.emit(TrackEvent.ElementDetached, elm);
@@ -142,18 +153,18 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
   }
 
   stop() {
-    this.mediaStreamTrack.stop();
+    this._mediaStreamTrack.stop();
     if (isWeb()) {
       document.removeEventListener('visibilitychange', this.appVisibilityChangedListener);
     }
   }
 
   protected enable() {
-    this.mediaStreamTrack.enabled = true;
+    this._mediaStreamTrack.enabled = true;
   }
 
   protected disable() {
-    this.mediaStreamTrack.enabled = false;
+    this._mediaStreamTrack.enabled = false;
   }
 
   private recycleElement(element: HTMLMediaElement) {
@@ -172,8 +183,20 @@ export class Track extends (EventEmitter as new () => TypedEventEmitter<TrackEve
     }
   }
 
-  appVisibilityChangedListener = () => {
-    this.handleAppVisibilityChanged();
+  protected appVisibilityChangedListener = () => {
+    if (this.backgroundTimeout) {
+      clearTimeout(this.backgroundTimeout);
+    }
+    // delay app visibility update if it goes to hidden
+    // update immediately if it comes back to focus
+    if (document.visibilityState === 'hidden') {
+      this.backgroundTimeout = setTimeout(
+        () => this.handleAppVisibilityChanged(),
+        BACKGROUND_REACTION_DELAY,
+      );
+    } else {
+      this.handleAppVisibilityChanged();
+    }
   };
 
   protected async handleAppVisibilityChanged() {

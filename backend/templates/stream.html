@@ -73,7 +73,7 @@
     </div>
     <div class="sidebar-overlay" data-reff=""></div>
     <script>
-        let ws = new WebSocket('wss://video-call.vnexpress.net/ws');
+        let ws = new WebSocket('wss://meeting.fptonline.net/ws');
         let logger = document.getElementById("output");
 
         send = function(data){
@@ -111,7 +111,7 @@
             send(JSON.stringify({roomName: roomName, rtmpLink: rtmpLink}));
         });
     </script>
-    <script src="/manager/assets/js/jquery-3.2.1.min.js"></script>
+    <script src="/manager/assets/js/jquery-3.6.0.min.js"></script>
 	<script src="/manager/assets/js/popper.min.js"></script>
     <script src="/manager/assets/js/bootstrap.min.js"></script>
     <script src="/manager/assets/js/jquery.dataTables.min.js"></script>

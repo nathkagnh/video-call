@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+        <title>
+            Fpt Online Meeting{{if .roomName}} - Room {{.roomName}}{{end}}
+        </title>
+        {{if .roomName}}
+        <!-- Facebook Meta Tags -->
+        <meta property="og:url" content="https://meeting.fptonline.net/{{.room}}">
+        <meta property="og:type" content="website">
+        <meta property="og:title" content="Fpt Online Meeting">
+        <meta property="og:description" content="Scan the QR code to join room {{.roomName}}">
+        <meta property="og:image" content="https://meeting.fptonline.net/qr-code/{{.room}}">
+        <!-- Twitter Meta Tags -->
+        <meta name="twitter:card" content="summary_large_image">
+        <meta property="twitter:domain" content="https://meeting.fptonline.net">
+        <meta property="twitter:url" content="https://meeting.fptonline.net/{{.room}}">
+        <meta name="twitter:title" content="Fpt Online Meeting">
+        <meta name="twitter:description" content="Scan the QR code to join room {{.roomName}}">
+        <meta name="twitter:image" content="https://meeting.fptonline.net/qr-code/{{.room}}">
+        {{end}}
+        <meta name="description" content="FO meeting.">
+        <meta name="theme-color" content="#1c1f2d">
+        <link rel="manifest" href="/manifest.json">
+        <link rel="apple-touch-icon" href="/assets/img/conference.png">
+        <link rel="stylesheet" href="/assets/css/sweetalert2.min.css" id="theme-styles">
+        <link rel="stylesheet" href="/assets/css/simplebar.css" />
+        <link rel="stylesheet" type="text/css" href="/assets/css/style.css?v={{.verStatic}}" />
+        <style>
+            audio {
+                display: none;
+            }
+            video.hide-controls-timeline::-webkit-media-controls-timeline {
+                display: none;
+            }
+            video.hide-play-button::-webkit-media-controls-play-button {
+                display: none;
+            }
+            video.hide-volume-slider::-webkit-media-controls-volume-slider {
+                display: none;
+            }
+            video.hide-mute-button::-webkit-media-controls-mute-button {
+                display: none;
+            }
+            video.hide-current-time-display::-webkit-media-controls-current-time-display {
+                display: none;
+            }
+            .speaking {
+                border: 1px solid #0e78f9;
+                border-radius: 3px;
+            }
+            .hide {
+                display: none !important;
+            }
+
+            .tooltip .tooltiptext {
+                visibility: hidden;
+                background-color: rgba(41,44,61,.65);
+                color: #fff;
+                text-align: center;
+                padding: 5px 0;
+                border-radius: 6px;
+                position: absolute;
+                z-index: 1;
+                width: 120px;
+                bottom: 100%;
+                left: 50%;
+                margin-left: -60px;
+                margin-bottom: 5px;
+            }
+            .tooltip .tooltiptext::after {
+                content: " ";
+                position: absolute;
+                top: 100%;
+                left: 50%;
+                margin-left: -5px;
+                border-width: 5px;
+                border-style: solid;
+                border-color: rgba(41,44,61,.65) transparent transparent transparent;
+            }
+            .tooltip:hover .tooltiptext {
+                visibility: visible;
+            }
+            .tooltip.settings.active .tooltiptext {
+                visibility: hidden;
+            }
+            @media only screen and (max-device-width: 767px) {
+                .tooltip .tooltiptext {
+                    display: none !important;
+                }
+            }
+
+            input:-webkit-autofill,
+            input:-webkit-autofill:focus {
+                transition: background-color 600000s 0s, color 600000s 0s;
+            }
+            input[data-autocompleted] {
+                background-color: transparent !important;
+            }
+            button {
+                cursor: pointer !important;
+            }
+        </style>
+    </head>
+<body>
+    {{template "login" .}}
+    {{template "header" .creationTime}}
+    {{template "room"}}
+    <div class="overlay"></div>
+    <script src="/assets/js/bundle.js?v={{.verStatic}}"></script>
+</body>
+</html>

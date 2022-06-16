@@ -1,0 +1,23 @@
+{{define "chat"}}
+<div class="box-chat" id="box-chat">
+    <a href="javascript:void(0)" class="box-chat__title" onclick="appActions.toggleChat()">
+        <span>Chat</span>
+        <i class="icon-close"></i>
+    </a>
+    <div class="box-chat__body">
+        <div class="box-chat__inner" id="chat-message"></div>
+    </div>
+    <div class="box-chat__footer">
+        <div class="box-type">
+            <div class="frame-type">
+                <input type="text" id="entry" placeholder="Type your message......" autocomplete="off" onchange="appActions.enterText()"/>
+                <div class="ic-group">
+                    <button id="send-button" class="send-messenger" type="button" onclick="appActions.enterText()" disabled>
+                        <i class="icon-send"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

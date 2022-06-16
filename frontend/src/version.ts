@@ -1,2 +1,4 @@
-export const version = '0.18.4';
-export const protocolVersion = 7;
+import { version as v } from '../package.json';
+
+export const version = v;
+export const protocolVersion = 8;
