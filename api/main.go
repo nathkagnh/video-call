@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/livekit/protocol/auth"
@@ -24,6 +26,7 @@ type LivekitServerConfig struct {
 
 type RoomMetaData struct {
 	RealName string `json:"real_name"`
+	Host     string `json:"host"`
 }
 
 type ParticipantMetaData struct {
@@ -31,12 +34,25 @@ type ParticipantMetaData struct {
 }
 
 type JoinTokenPostData struct {
+	UserInfo string `json:"uii"`
 	UserName string `json:"user_name"`
 	Avatar   string `json:"avatar"`
 	Room     string `json:"room"`
 	Create   bool   `json:"create"`
 	Passcode string `json:"passcode"`
 }
+
+type PMR struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	HostName     string `json:"host_name"`
+	Passcode     string `json:"passcode"`
+	CreationTime int32  `json:"creation_time"`
+}
+
+var ctx = context.Background()
+var redisClient *redis.Client
 
 func main() {
 	serverConfig := LivekitServerConfig{
@@ -64,12 +80,42 @@ func main() {
 			return
 		}
 
+		// find|create participant id
+		var participantID, secretID string
+		secretKey := "_cf-fa-7d"
+		if postData.UserInfo != "" {
+			userInfo := strings.Split(postData.UserInfo, ",")
+			if len(userInfo) == 2 {
+				xxx := userInfo[1] + secretKey
+				err := bcrypt.CompareHashAndPassword([]byte(userInfo[0]), []byte(xxx))
+				if err == nil {
+					participantID = userInfo[1]
+					secretID = userInfo[0]
+				}
+			}
+		}
+		if participantID == "" {
+			participantID = pseudo_uuid()
+			xxx := participantID + secretKey
+			sID, err := bcrypt.GenerateFromPassword([]byte(xxx), 10)
+			if err != nil {
+				log.Printf("create room error: %v", err)
+				c.JSON(200, gin.H{
+					"error":   1,
+					"message": "Get token error",
+				})
+				return
+			}
+			secretID = string(sID)
+		}
+
 		room := postData.Room
 		if postData.Create {
-			room = uuid.New().String()
+			room = pseudo_uuid()
 
 			metaData := RoomMetaData{
 				RealName: postData.Room,
+				Host:     participantID,
 			}
 			metaDataJsonString, err := json.Marshal(metaData)
 			if err != nil {
@@ -91,15 +137,17 @@ func main() {
 			}
 
 			// save passcode to redis
-			if postData.Create && postData.Passcode != "" {
-				var ctx = context.Background()
-				rdb := redis.NewClient(&redis.Options{
-					Addr:     "127.0.0.1:6379",
-					Password: "",
-					DB:       0,
-				})
+			if postData.Passcode != "" {
+				rdb, err := getRedisClient()
+				if err != nil {
+					log.Printf("create room error: %v", err)
+					c.JSON(200, gin.H{
+						"error":   1,
+						"message": "Create room error",
+					})
+				}
 				key := "room_info:" + room
-				passcode, err := bcrypt.GenerateFromPassword([]byte(postData.Passcode), 14)
+				passcode, err := bcrypt.GenerateFromPassword([]byte(postData.Passcode), 10)
 				if err != nil {
 					log.Printf("create room error: %v", err)
 					c.JSON(200, gin.H{
@@ -116,31 +164,43 @@ func main() {
 					})
 				}
 			}
-		}
-
-		// check passcode
-		if !postData.Create {
-			var ctx = context.Background()
-			rdb := redis.NewClient(&redis.Options{
-				Addr:     "127.0.0.1:6379",
-				Password: "",
-				DB:       0,
-			})
-			key := "room_info:" + room
-			passcode, err := rdb.Get(ctx, key).Result()
-			if err != nil && err != redis.Nil {
-				log.Printf("create room error: %v", err)
+		} else {
+			// check passcode
+			rdb, err := getRedisClient()
+			if err != nil {
 				c.JSON(200, gin.H{
 					"error":   1,
-					"message": "Create room error",
+					"message": "Incorrect passcode",
 				})
+				return
+			}
+			key := "room_info:" + room
+			passcode, err := rdb.Get(ctx, key).Result()
+			if err == redis.Nil {
+				pmr, err := getPMR(room)
+				if err != nil {
+					c.JSON(200, gin.H{
+						"error":   1,
+						"message": "Incorrect passcode",
+					})
+					return
+				}
+				if pmr.ID != "" {
+					passcode = pmr.Passcode
+				}
+			} else if err != nil {
+				c.JSON(200, gin.H{
+					"error":   1,
+					"message": "Incorrect passcode",
+				})
+				return
 			}
 			if passcode != "" {
 				err = bcrypt.CompareHashAndPassword([]byte(passcode), []byte(postData.Passcode))
 				if err != nil {
 					c.JSON(200, gin.H{
 						"error":   1,
-						"message": "Passcode invalid",
+						"message": "Incorrect passcode",
 					})
 					return
 				}
@@ -152,8 +212,12 @@ func main() {
 			RoomJoin: true,
 			Room:     room,
 		}
+		if postData.Create {
+			grant.RoomAdmin = true
+		}
+
 		at.AddGrant(grant).
-			SetIdentity(uuid.New().String()).
+			SetIdentity(participantID).
 			SetName(postData.UserName).
 			SetValidFor(time.Hour)
 		if postData.Avatar != "" {
@@ -181,6 +245,7 @@ func main() {
 		c.JSON(200, gin.H{
 			"token": token,
 			"room":  room,
+			"uii":   secretID + "," + participantID,
 		})
 	})
 
@@ -382,4 +447,52 @@ func main() {
 	})
 
 	r.Run(":1010")
+}
+
+func getRedisClient() (*redis.Client, error) {
+	if redisClient == nil {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     "127.0.0.1:6379",
+			Password: "",
+			DB:       0,
+		})
+	}
+	return redisClient, nil
+}
+
+func pseudo_uuid() (uuid string) {
+	b := make([]byte, 3)
+	_, err := rand.Read(b)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	uuid = fmt.Sprintf("%X-%X-%X", b[0:1], b[1:2], b[2:3])
+	uuid = strings.ToLower(uuid)
+
+	return
+}
+
+func getPMR(ID string) (PMR, error) {
+	var pmr PMR
+	rdb, err := getRedisClient()
+	if err != nil {
+		log.Println(err)
+		return pmr, err
+	}
+	key := "pmr:" + ID
+	data, err := rdb.Get(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		log.Println(err)
+		return pmr, err
+	}
+	if data != "" {
+		err := json.Unmarshal([]byte(data), &pmr)
+		if err != nil {
+			return pmr, err
+		}
+	}
+
+	return pmr, nil
 }

@@ -89,6 +89,38 @@ export function streamStateToJSON(object: StreamState): string {
   }
 }
 
+export enum CandidateProtocol {
+  UDP = 0,
+  TCP = 1,
+  UNRECOGNIZED = -1,
+}
+
+export function candidateProtocolFromJSON(object: any): CandidateProtocol {
+  switch (object) {
+    case 0:
+    case 'UDP':
+      return CandidateProtocol.UDP;
+    case 1:
+    case 'TCP':
+      return CandidateProtocol.TCP;
+    case -1:
+    case 'UNRECOGNIZED':
+    default:
+      return CandidateProtocol.UNRECOGNIZED;
+  }
+}
+
+export function candidateProtocolToJSON(object: CandidateProtocol): string {
+  switch (object) {
+    case CandidateProtocol.UDP:
+      return 'UDP';
+    case CandidateProtocol.TCP:
+      return 'TCP';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 export interface SignalRequest {
   /** initial join exchange, for publisher */
   offer?: SessionDescription | undefined;
@@ -177,6 +209,8 @@ export interface AddTrackRequest {
   source: TrackSource;
   layers: VideoLayer[];
   simulcastCodecs: SimulcastCodec[];
+  /** server ID of track, publish new codec to exist track */
+  sid: string;
 }
 
 export interface TrickleRequest {
@@ -348,6 +382,8 @@ export interface SimulateScenario {
   migration: boolean | undefined;
   /** server to send leave */
   serverLeave: boolean | undefined;
+  /** switch candidate protocol to tcp */
+  switchCandidateProtocol: CandidateProtocol | undefined;
 }
 
 function createBaseSignalRequest(): SignalRequest {
@@ -959,6 +995,7 @@ function createBaseAddTrackRequest(): AddTrackRequest {
     source: 0,
     layers: [],
     simulcastCodecs: [],
+    sid: '',
   };
 }
 
@@ -993,6 +1030,9 @@ export const AddTrackRequest = {
     }
     for (const v of message.simulcastCodecs) {
       SimulcastCodec.encode(v!, writer.uint32(82).fork()).ldelim();
+    }
+    if (message.sid !== '') {
+      writer.uint32(90).string(message.sid);
     }
     return writer;
   },
@@ -1034,6 +1074,9 @@ export const AddTrackRequest = {
         case 10:
           message.simulcastCodecs.push(SimulcastCodec.decode(reader, reader.uint32()));
           break;
+        case 11:
+          message.sid = reader.string();
+          break;
         default:
           reader.skipType(tag & 7);
           break;
@@ -1058,6 +1101,7 @@ export const AddTrackRequest = {
       simulcastCodecs: Array.isArray(object?.simulcastCodecs)
         ? object.simulcastCodecs.map((e: any) => SimulcastCodec.fromJSON(e))
         : [],
+      sid: isSet(object.sid) ? String(object.sid) : '',
     };
   },
 
@@ -1083,6 +1127,7 @@ export const AddTrackRequest = {
     } else {
       obj.simulcastCodecs = [];
     }
+    message.sid !== undefined && (obj.sid = message.sid);
     return obj;
   },
 
@@ -1099,6 +1144,7 @@ export const AddTrackRequest = {
     message.layers = object.layers?.map((e) => VideoLayer.fromPartial(e)) || [];
     message.simulcastCodecs =
       object.simulcastCodecs?.map((e) => SimulcastCodec.fromPartial(e)) || [];
+    message.sid = object.sid ?? '';
     return message;
   },
 };
@@ -2941,6 +2987,7 @@ function createBaseSimulateScenario(): SimulateScenario {
     nodeFailure: undefined,
     migration: undefined,
     serverLeave: undefined,
+    switchCandidateProtocol: undefined,
   };
 }
 
@@ -2957,6 +3004,9 @@ export const SimulateScenario = {
     }
     if (message.serverLeave !== undefined) {
       writer.uint32(32).bool(message.serverLeave);
+    }
+    if (message.switchCandidateProtocol !== undefined) {
+      writer.uint32(40).int32(message.switchCandidateProtocol);
     }
     return writer;
   },
@@ -2980,6 +3030,9 @@ export const SimulateScenario = {
         case 4:
           message.serverLeave = reader.bool();
           break;
+        case 5:
+          message.switchCandidateProtocol = reader.int32() as any;
+          break;
         default:
           reader.skipType(tag & 7);
           break;
@@ -2994,6 +3047,9 @@ export const SimulateScenario = {
       nodeFailure: isSet(object.nodeFailure) ? Boolean(object.nodeFailure) : undefined,
       migration: isSet(object.migration) ? Boolean(object.migration) : undefined,
       serverLeave: isSet(object.serverLeave) ? Boolean(object.serverLeave) : undefined,
+      switchCandidateProtocol: isSet(object.switchCandidateProtocol)
+        ? candidateProtocolFromJSON(object.switchCandidateProtocol)
+        : undefined,
     };
   },
 
@@ -3003,6 +3059,11 @@ export const SimulateScenario = {
     message.nodeFailure !== undefined && (obj.nodeFailure = message.nodeFailure);
     message.migration !== undefined && (obj.migration = message.migration);
     message.serverLeave !== undefined && (obj.serverLeave = message.serverLeave);
+    message.switchCandidateProtocol !== undefined &&
+      (obj.switchCandidateProtocol =
+        message.switchCandidateProtocol !== undefined
+          ? candidateProtocolToJSON(message.switchCandidateProtocol)
+          : undefined);
     return obj;
   },
 
@@ -3012,6 +3073,7 @@ export const SimulateScenario = {
     message.nodeFailure = object.nodeFailure ?? undefined;
     message.migration = object.migration ?? undefined;
     message.serverLeave = object.serverLeave ?? undefined;
+    message.switchCandidateProtocol = object.switchCandidateProtocol ?? undefined;
     return message;
   },
 };

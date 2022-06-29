@@ -2,11 +2,10 @@
 // import glob from 'glob';
 // import path from 'path';
 import typescript from 'rollup-plugin-typescript2';
-// import babel from '@rollup/plugin-babel';
 import commonjs from '@rollup/plugin-commonjs';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
-import replace from 'rollup-plugin-replace';
 import json from '@rollup/plugin-json';
+import replace from 'rollup-plugin-replace';
 import { uglify } from "rollup-plugin-uglify";
 // import serve from 'rollup-plugin-serve';
 // import livereload from 'rollup-plugin-livereload';
@@ -43,9 +42,8 @@ export default {
     commonjs(),
     json(),
     uglify(),
-    // babel()
-    // serve({ contentBase: 'web', open: true, port: 8080 }),
-    // watcher(['web/index.html', 'web/styles.css']),
+    // serve({ contentBase: 'example', open: true, port: 8080 }),
+    // watcher(['example/index.html', 'example/styles.css']),
     // livereload(),
   ],
 };

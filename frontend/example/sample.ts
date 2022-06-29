@@ -1,27 +1,27 @@
 import {
   ConnectionQuality,
+  ConnectionState,
   DataPacket_Kind,
   LocalParticipant,
+  LogLevel,
   MediaDeviceFailure,
   Participant,
   ParticipantEvent,
   RemoteParticipant,
+  RemoteTrackPublication,
+  RemoteVideoTrack,
   Room,
   RoomConnectOptions,
   RoomEvent,
   RoomOptions,
-  ConnectionState,
   setLogLevel,
   Track,
   TrackPublication,
   VideoCaptureOptions,
-  VideoPresets,
   VideoCodec,
-  VideoQuality,
-  RemoteVideoTrack,
-} from '../src/index';
-import { LogLevel } from '../src/logger';
-import { TrackSource } from '../src/proto/livekit_models';
+  VideoPresets,
+  VideoQuality
+} from '../src/index'
 
 const $ = (id: string) => document.getElementById(id);
 
@@ -64,16 +64,12 @@ const appActions = {
     updateSearchParams(url, token);
 
     const roomOpts: RoomOptions = {
-      adaptiveStream: adaptiveStream
-        ? {
-            pixelDensity: 'screen',
-          }
-        : false,
+      adaptiveStream,
       dynacast,
       publishDefaults: {
         simulcast,
         videoSimulcastLayers: [VideoPresets.h90, VideoPresets.h216],
-        videoCodec: preferredCodec,
+        videoCodec: preferredCodec || 'vp8',
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h720.resolution,
@@ -114,12 +110,12 @@ const appActions = {
       .on(RoomEvent.LocalTrackPublished, () => {
         renderParticipant(room.localParticipant);
         updateButtonsForPublishState();
-        renderScreenShare();
+        renderScreenShare(room);
       })
       .on(RoomEvent.LocalTrackUnpublished, () => {
         renderParticipant(room.localParticipant);
         updateButtonsForPublishState();
-        renderScreenShare();
+        renderScreenShare(room);
       })
       .on(RoomEvent.RoomMetadataChanged, (metadata) => {
         appendLog('new metadata for room', metadata);
@@ -142,9 +138,15 @@ const appActions = {
           appendLog('connection quality changed', participant?.identity, quality);
         },
       )
-      .on(RoomEvent.TrackSubscribed, (_1, _2, participant: RemoteParticipant) => {
+      .on(RoomEvent.TrackSubscribed, (_1, pub, participant) => {
+        appendLog('subscribed to track', pub.trackSid, participant.identity);
         renderParticipant(participant);
-        renderScreenShare();
+        renderScreenShare(room);
+      })
+      .on(RoomEvent.TrackUnsubscribed, (_, pub, participant) => {
+        appendLog('unsubscribed from track', pub.trackSid);
+        renderParticipant(participant);
+        renderScreenShare(room);
       })
       .on(RoomEvent.SignalConnected, async () => {
         if (shouldPublish) {
@@ -239,7 +241,7 @@ const appActions = {
     const enabled = currentRoom.localParticipant.isScreenShareEnabled;
     appendLog(`${enabled ? 'stopping' : 'starting'} screen share`);
     setButtonDisabled('share-screen-button', true);
-    await currentRoom.localParticipant.setScreenShareEnabled(!enabled);
+    await currentRoom.localParticipant.setScreenShareEnabled(!enabled, { audio: true });
     setButtonDisabled('share-screen-button', false);
     updateButtonsForPublishState();
   },
@@ -355,16 +357,6 @@ function handleData(msg: Uint8Array, participant?: RemoteParticipant) {
 function participantConnected(participant: Participant) {
   appendLog('participant', participant.identity, 'connected', participant.metadata);
   participant
-    .on(ParticipantEvent.TrackSubscribed, (_, pub: TrackPublication) => {
-      appendLog('subscribed to track', pub.trackSid, participant.identity);
-      renderParticipant(participant);
-      renderScreenShare();
-    })
-    .on(ParticipantEvent.TrackUnsubscribed, (_, pub: TrackPublication) => {
-      appendLog('unsubscribed from track', pub.trackSid);
-      renderParticipant(participant);
-      renderScreenShare();
-    })
     .on(ParticipantEvent.TrackMuted, (pub: TrackPublication) => {
       appendLog('track was muted', pub.trackSid, participant.identity);
       renderParticipant(participant);
@@ -395,7 +387,7 @@ function handleRoomDisconnect() {
   currentRoom.participants.forEach((p) => {
     renderParticipant(p, true);
   });
-  renderScreenShare();
+  renderScreenShare(currentRoom);
 
   const container = $('participants-area');
   if (container) {
@@ -464,7 +456,7 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
         <input id="volume-${identity}" type="range" min="0" max="1" step="0.1" value="1" orient="vertical" />
       </div>`
       }
-      
+
     `;
     container.appendChild(div);
 
@@ -576,18 +568,19 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
   }
 }
 
-function renderScreenShare() {
+function renderScreenShare(room: Room) {
   const div = $('screenshare-area')!;
-  if (!currentRoom || currentRoom.state !== ConnectionState.Connected) {
+  if (room.state !== ConnectionState.Connected) {
     div.style.display = 'none';
     return;
   }
   let participant: Participant | undefined;
-  let screenSharePub: TrackPublication | undefined = currentRoom.localParticipant.getTrack(
+  let screenSharePub: TrackPublication | undefined = room.localParticipant.getTrack(
     Track.Source.ScreenShare,
   );
+  let screenShareAudioPub: RemoteTrackPublication | undefined;
   if (!screenSharePub) {
-    currentRoom.participants.forEach((p) => {
+    room.participants.forEach((p) => {
       if (screenSharePub) {
         return;
       }
@@ -596,15 +589,22 @@ function renderScreenShare() {
       if (pub?.isSubscribed) {
         screenSharePub = pub;
       }
+      const audioPub = p.getTrack(Track.Source.ScreenShareAudio);
+      if (audioPub?.isSubscribed) {
+        screenShareAudioPub = audioPub;
+      }
     });
   } else {
-    participant = currentRoom.localParticipant;
+    participant = room.localParticipant;
   }
 
   if (screenSharePub && participant) {
     div.style.display = 'block';
     const videoElm = <HTMLVideoElement>$('screenshare-video');
     screenSharePub.videoTrack?.attach(videoElm);
+    if (screenShareAudioPub) {
+      screenShareAudioPub.audioTrack?.attach(videoElm);
+    }
     videoElm.onresize = () => {
       updateVideoSize(videoElm, <HTMLSpanElement>$('screenshare-resolution'));
     };
@@ -630,7 +630,7 @@ function renderBitrate() {
         totalBitrate += t.track.currentBitrate;
       }
 
-      if (t.trackInfo?.source === TrackSource.CAMERA) {
+      if (t.source === Track.Source.Camera) {
         if (t.videoTrack instanceof RemoteVideoTrack) {
           const codecElm = $(`codec-${p.identity}`)!;
           codecElm.innerHTML = t.videoTrack.getDecoderImplementation() ?? '';

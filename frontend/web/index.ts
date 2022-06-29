@@ -1,28 +1,28 @@
 import {
   ConnectionQuality,
+  ConnectionState,
   DataPacket_Kind,
   LocalParticipant,
+  LogLevel,
   MediaDeviceFailure,
   Participant,
   ParticipantEvent,
   RemoteParticipant,
+  RemoteTrackPublication,
+  RemoteVideoTrack,
   Room,
   RoomConnectOptions,
   RoomEvent,
   RoomOptions,
-  ConnectionState,
   setLogLevel,
   Track,
   TrackPublication,
   VideoCaptureOptions,
-  VideoPresets,
   VideoCodec,
-  VideoQuality,
-  RemoteVideoTrack,
-} from '../src/index';
-import { LogLevel } from '../src/logger';
-import { TrackSource } from '../src/proto/livekit_models';
-import Dropzone from "dropzone"
+  VideoPresets,
+  VideoQuality
+} from '../src/index'
+import Dropzone from 'dropzone';
 import Swal from 'sweetalert2';
 import SimpleBar from 'simplebar';
 import { Buffer } from 'buffer';
@@ -30,14 +30,16 @@ import { Buffer } from 'buffer';
 const $ = (id: string) => document.getElementById(id);
 const API_URL = "https://meeting.fptonline.net";
 const WSS_URL = "wss://wss-meeting.fptonline.net";
+const isMobile = /Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(navigator.userAgent);
+let readyRecieveNotify = false;
 
 // register service worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js').then(function(registration) {
-          console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          // console.log('ServiceWorker registration successful with scope: ', registration.scope);
       }, function(err) {
-          console.log('ServiceWorker registration failed: ', err);
+          // console.log('ServiceWorker registration failed: ', err);
       });
   });       
 }
@@ -72,62 +74,67 @@ if ('serviceWorker' in navigator) {
 // upload avatar
 let localAvatar: string|null;
 let localName: string|null;
-const avatarUploader = new Dropzone(".dz-upload-avatar", {
-    url: "/upload-avatar",
-    maxFiles: 1,
-    uploadMultiple: false,
-    acceptedFiles: "image/*",
-    resizeWidth: 500,
-    resizeHeight: 500,
-    resizeQuality: 1,
-    createImageThumbnails: false,
-    previewsContainer: false,
-    clickable: ".box-upload-file"
-});
-avatarUploader.on("error", (file, message) => {
-  avatarUploader.removeAllFiles(true);
-  Swal.fire({
-    title: 'Error',
-    text: 'Upload error. Please try again',
-    showCancelButton: false,
-    confirmButtonColor: '#0E78F9',
-    cancelButtonColor: '#292C3D',
-    confirmButtonText: 'Ok',
-    showCloseButton: true,
-    heightAuto: false,
-    background: '#292c3d',
+const dropzoneElm = <HTMLElement>document.querySelector(".dz-upload-avatar");
+if (dropzoneElm) {
+  const avatarUploader = new Dropzone(dropzoneElm, {
+      url: "/upload-avatar",
+      maxFiles: 1,
+      uploadMultiple: false,
+      acceptedFiles: "image/*",
+      resizeWidth: 500,
+      resizeHeight: 500,
+      resizeQuality: 1,
+      createImageThumbnails: false,
+      previewsContainer: false,
+      clickable: ".box-upload-file"
   });
-  console.log(`upload error: ${file.name} - ${message}`);
-});
-avatarUploader.on("success", file => {
-    console.log(file);
-    var res = JSON.parse(file.xhr?.response);
-    if (res.status == 1) {
-      localAvatar = res.message;
-      let avatar = <HTMLDivElement>document.querySelector("#joinPage .box-avatar");
-      avatar.innerHTML = `<img src="${res.message}" alt="">`;
-
-      localStorage.setItem("avatar", res.message);
-    } else {
-      Swal.fire({
-        title: 'Error',
-        text: 'Upload error. Please try again',
-        showCancelButton: false,
-        confirmButtonColor: '#0E78F9',
-        cancelButtonColor: '#292C3D',
-        confirmButtonText: 'Ok',
-        showCloseButton: true,
-        heightAuto: false,
-        background: '#292c3d',
-      });
-      console.log("upload error:", res);
-    }
+  avatarUploader.on("error", (file: any, message: any) => {
     avatarUploader.removeAllFiles(true);
-});
+    Swal.fire({
+      title: 'Error',
+      text: 'Upload error. Please try again',
+      showCancelButton: false,
+      confirmButtonColor: '#0E78F9',
+      cancelButtonColor: '#292C3D',
+      confirmButtonText: 'Ok',
+      showCloseButton: true,
+      heightAuto: false,
+      background: '#292c3d',
+    });
+    console.log(`upload error: ${file.name} - ${message}`);
+  });
+  avatarUploader.on("success", (file: any) => {
+      console.log(file);
+      let res = JSON.parse(file.xhr?.response);
+      if (res.status == 1) {
+        localAvatar = res.message;
+        const avatar = <HTMLDivElement>document.querySelector("#joinPage .box-avatar");
+        avatar.innerHTML = `<img src="${res.message}" alt="">`;
+
+        localStorage.setItem("avatar", res.message);
+      } else {
+        Swal.fire({
+          title: 'Error',
+          text: 'Upload error. Please try again',
+          showCancelButton: false,
+          confirmButtonColor: '#0E78F9',
+          cancelButtonColor: '#292C3D',
+          confirmButtonText: 'Ok',
+          showCloseButton: true,
+          heightAuto: false,
+          background: '#292c3d',
+        });
+        console.log("upload error:", res);
+      }
+      avatarUploader.removeAllFiles(true);
+  });
+}
 localAvatar = localStorage.getItem("avatar");
 if (localAvatar) {
-    let avatar = <HTMLDivElement>document.querySelector("#joinPage .box-avatar");
-    avatar.innerHTML = `<img src="${localAvatar}" alt="">`;
+    const avatar = <HTMLDivElement>document.querySelector("#joinPage .box-avatar");
+    if (avatar) {
+      avatar.innerHTML = `<img src="${localAvatar}" alt="">`;
+    }
     localAvatar = localAvatar;
 }
 localName = localStorage.getItem("name");
@@ -137,7 +144,7 @@ let joinMic = false;
 let joinCam = false;
 let joinMicButton = <HTMLButtonElement>$("btnJoinMic");
 let joinCamButton = <HTMLButtonElement>$("btnJoinCam");
-joinMicButton.addEventListener("click", (e) => {
+joinMicButton?.addEventListener("click", (e) => {
   if (joinMicButton && joinMicButton.innerHTML == '<i class="icon-Voiceoff"></i>') {
     joinMic = true;
     joinMicButton.innerHTML = '<i class="icon-Voice"></i>';
@@ -146,7 +153,7 @@ joinMicButton.addEventListener("click", (e) => {
     joinMicButton.innerHTML = '<i class="icon-Voiceoff"></i>';
   }
 });
-joinCamButton.addEventListener("click", (e) => {
+joinCamButton?.addEventListener("click", (e) => {
   if (joinCamButton && joinCamButton.innerHTML == '<i class="icon-Video"></i>') {
     joinCam = false;
     joinCamButton.innerHTML = '<i class="icon-Videooff"></i>';
@@ -163,7 +170,8 @@ const state = {
   decoder: new TextDecoder(),
   defaultDevices: new Map<MediaDeviceKind, string>(),
   bitrateInterval: undefined as any,
-  layout: 1
+  layout: 1,
+  raiseHand: false
 };
 let currentRoom: Room | undefined;
 let startTime: number;
@@ -172,13 +180,15 @@ const nameInputElm = <HTMLInputElement>document.querySelector('input[name="name"
 const roomInputElm = <HTMLInputElement>document.querySelector('input[name="room"]');
 const roomPasscodeElm = <HTMLInputElement>document.querySelector('input[name="room-passcode"]');
 if (localName) {
-  nameInputElm.value = localName;
+  if (nameInputElm) {
+    nameInputElm.value = localName;
+  }
   if (roomInputElm) {
     roomInputElm.focus();
   } else if (roomPasscodeElm) {
     roomPasscodeElm.focus();
   } else {
-    (<HTMLButtonElement>$("btnJoin")).focus();
+    (<HTMLButtonElement>$("btnJoin"))?.focus();
   }
 }
 nameInputElm?.addEventListener("keyup", function (e: any) {
@@ -238,6 +248,10 @@ const appActions = {
     if (roomPasscode && roomPasscode != "") {
       dataPost.passcode = roomPasscode;
     }
+    const uii = localStorage.getItem("uii");
+    if (uii) {
+      dataPost.uii = uii;
+    }
     const token = await fetch(`${API_URL}/api/get-join-token`, {
       method: 'POST',
       cache: 'no-cache',
@@ -250,13 +264,14 @@ const appActions = {
         const {
           token,
           room,
+          uii,
           error,
           message
         } = await result.json();
 
         if (error == 1) {
           Swal.fire({
-            title: 'Error',
+            title: 'Notify',
             text: message,
             showCancelButton: false,
             confirmButtonColor: '#0E78F9',
@@ -271,6 +286,9 @@ const appActions = {
         
         console.log("get-join-token", token);
         window.history.replaceState(null, '', `/${room}`);
+        if (uii) {
+          localStorage.setItem("uii", uii);
+        }
 
         return token;
       }
@@ -294,21 +312,13 @@ const appActions = {
     setLogLevel(LogLevel.debug);
 
     const roomOpts: RoomOptions = {
-      // adaptiveStream: adaptiveStream
-      //   ? {
-      //     pixelDensity: "screen",
-      //   }
-      //   : false,
-
-      // automatically manage subscribed video quality
+      // adaptiveStream
       adaptiveStream: true,
-
-      // optimize publishing bandwidth and CPU for published tracks
       dynacast: true,
       publishDefaults: {
         simulcast,
         videoSimulcastLayers: [VideoPresets.h90, VideoPresets.h216],
-        videoCodec: preferredCodec,
+        videoCodec: preferredCodec || 'vp8',
       },
       videoCaptureDefaults: {
         resolution: VideoPresets.h720.resolution,
@@ -347,18 +357,14 @@ const appActions = {
         appendLog('Successfully reconnected. server', room.engine.connectedServerAddress);
       })
       .on(RoomEvent.LocalTrackPublished, () => {
-        if (room.localParticipant.identity == "bot") {
-          renderScreenShare(room.localParticipant);
-        } else {
-          renderParticipant(room.localParticipant);
-          updateButtonsForPublishState();
-          renderScreenShare();
-        }
+        renderParticipant(room.localParticipant);
+        updateButtonsForPublishState();
+        renderScreenShare(room);
       })
       .on(RoomEvent.LocalTrackUnpublished, () => {
         renderParticipant(room.localParticipant);
         updateButtonsForPublishState();
-        renderScreenShare();
+        renderScreenShare(room);
 
         let screenShare = (<HTMLDivElement>$(`screenshare-wrapper-${room.localParticipant.identity}`));
         if (screenShare) {
@@ -370,15 +376,18 @@ const appActions = {
         appendLog('new data received for room', data);
 
         const jsonString = Buffer.from(data).toString('utf8');
-        const parsedData = JSON.parse(jsonString);
-        
-        if (parsedData) {
-          if (typeof parsedData.toggle_camera == "boolean") {
-            appActions.toggleVideo();
+        try {
+          const parsedData = JSON.parse(jsonString);
+          if (parsedData) {
+            if (typeof parsedData.toggle_camera == "boolean") {
+              appActions.toggleVideo();
+            }
+            if (typeof parsedData.off_screenshare == "boolean") {
+              appActions.shareScreen();
+            }
           }
-          if (typeof parsedData.off_screenshare == "boolean") {
-            appActions.shareScreen();
-          }
+        } catch (ex) {
+
         }
       })
       .on(RoomEvent.RoomMetadataChanged, (metadata) => {
@@ -402,9 +411,21 @@ const appActions = {
           appendLog('connection quality changed', participant?.name, quality);
         },
       )
-      .on(RoomEvent.TrackSubscribed, (_1, _2, participant: RemoteParticipant) => {
+      .on(RoomEvent.TrackSubscribed, (_1, pub, participant) => {
+        appendLog('subscribed to track', pub.trackSid, participant.identity);
         renderParticipant(participant);
-        renderScreenShare();
+        renderScreenShare(room);
+      })
+      .on(RoomEvent.TrackUnsubscribed, (_, pub, participant) => {
+        appendLog('unsubscribed from track', pub.trackSid);
+        renderParticipant(participant);
+        renderScreenShare(room);
+
+        let screenShare = (<HTMLDivElement>$(`screenshare-wrapper-${participant.identity}`));
+        if (screenShare) {
+          screenShare.remove();
+          handleLayouts();
+        }
       })
       .on(RoomEvent.SignalConnected, async () => {
         if (shouldPublish) {
@@ -441,6 +462,9 @@ const appActions = {
           (<HTMLDivElement>el).classList.remove("hide")
         });
       }
+      setTimeout(() => {
+        readyRecieveNotify = true;
+      }, 2000);
     } catch (error: any) {
       let message: any = error;
       if (error.message) {
@@ -537,7 +561,7 @@ const appActions = {
     appendLog(`${enabled ? 'stopping' : 'starting'} screen share`);
     setButtonDisabled('share-screen-button', true);
     try {
-      await currentRoom.localParticipant.setScreenShareEnabled(!enabled);
+      await currentRoom.localParticipant.setScreenShareEnabled(!enabled, { audio: true });
     } catch (error) {
       console.log("share screen error: ", error);
       if (error instanceof Error && error.message != "Permission denied") {
@@ -681,15 +705,38 @@ const appActions = {
     (<HTMLDivElement>$("box-chat")).classList.toggle("active");
   },
 
-  copyMeetingLink: () => {
+  copyMeetingLink: async () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(location.href).then(function() {
         console.log('Async: Copying to clipboard was successful!');
       }, function(err) {
         console.error('Async: Could not copy text: ', err);
       });
+
+      // copyImageToClipboard(`${location.origin}/qr-code${location.pathname}`)
+      // .then(() => {
+      //   console.log('Image Copied')
+      // })
+      // .catch((e) => {
+      //   console.log('Error: ', e.message)
+      // });
+
+      // const fetchedImageData = await fetch(`${location.origin}/qr-code${location.pathname}`);
+      // const blob = await fetchedImageData.blob();
+      // await navigator.clipboard.write([
+      //     new ClipboardItem({
+      //         [blob.type]: blob
+      //     }),
+      //     new ClipboardItem({
+      //       ['text/plain']: location.href
+      //   })
+      // ]).then(function() {
+      //   console.log('Async: Copying to clipboard was successful!');
+      // }, function(err) {
+      //   console.error('Async: Could not copy text: ', err);
+      // });
     } else {
-      var textArea = <HTMLTextAreaElement>document.createElement("textarea");
+      let textArea = <HTMLTextAreaElement>document.createElement("textarea");
       textArea.style.position = 'fixed';
       textArea.style.top = "0";
       textArea.style.left = "0";
@@ -705,8 +752,8 @@ const appActions = {
       textArea.focus();
       textArea.select();
       try {
-        var successful = document.execCommand('copy');
-        var msg = successful ? 'successful' : 'unsuccessful';
+        let successful = document.execCommand('copy');
+        let msg = successful ? 'successful' : 'unsuccessful';
         console.log('Copying text command was ' + msg);
       } catch (err) {
         console.log('Oops, unable to copy');
@@ -721,17 +768,76 @@ const appActions = {
       timer: 3000,
       timerProgressBar: true,
       background: '#292c3d',
-      didOpen: (toast) => {
+      didOpen: (toast: any) => {
         toast.addEventListener('mouseenter', Swal.stopTimer)
         toast.addEventListener('mouseleave', Swal.resumeTimer)
       }
-    })
+    });
     Toast.fire({
       icon: 'success',
       title: 'Copied meeting link',
       color: '#fff'
-    })
-  }
+    });
+  },
+
+  toggleFullscreen: () => {
+    const btnFullscreen = <HTMLAnchorElement>$("btnFullscreen");
+    if (btnFullscreen.innerHTML == '<i class="icon-Maximize"></i>') {
+      btnFullscreen.innerHTML = '<i class="icon-Minimize"></i>';
+
+      const docElmWithBrowsersFullScreenFunctions = document.documentElement as HTMLElement & {
+        mozRequestFullScreen(): Promise<void>;
+        webkitRequestFullscreen(): Promise<void>;
+        msRequestFullscreen(): Promise<void>;
+      };
+      if (docElmWithBrowsersFullScreenFunctions.requestFullscreen) {
+        docElmWithBrowsersFullScreenFunctions.requestFullscreen();
+      } else if (docElmWithBrowsersFullScreenFunctions.mozRequestFullScreen) { /* Firefox */
+        docElmWithBrowsersFullScreenFunctions.mozRequestFullScreen();
+      } else if (docElmWithBrowsersFullScreenFunctions.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+        docElmWithBrowsersFullScreenFunctions.webkitRequestFullscreen();
+      } else if (docElmWithBrowsersFullScreenFunctions.msRequestFullscreen) { /* IE/Edge */
+        docElmWithBrowsersFullScreenFunctions.msRequestFullscreen();
+      }
+    } else {
+      btnFullscreen.innerHTML = '<i class="icon-Maximize"></i>';
+
+      const docWithBrowsersExitFunctions = document as Document & {
+        mozCancelFullScreen(): Promise<void>;
+        webkitExitFullscreen(): Promise<void>;
+        msExitFullscreen(): Promise<void>;
+      };
+      if (docWithBrowsersExitFunctions.exitFullscreen) {
+        docWithBrowsersExitFunctions.exitFullscreen();
+      } else if (docWithBrowsersExitFunctions.mozCancelFullScreen) { /* Firefox */
+        docWithBrowsersExitFunctions.mozCancelFullScreen();
+      } else if (docWithBrowsersExitFunctions.webkitExitFullscreen) { /* Chrome, Safari and Opera */
+        docWithBrowsersExitFunctions.webkitExitFullscreen();
+      } else if (docWithBrowsersExitFunctions.msExitFullscreen) { /* IE/Edge */
+        docWithBrowsersExitFunctions.msExitFullscreen();
+      }
+    }
+  },
+
+  raiseHand: () => {
+    let code;
+    if (state.raiseHand) {
+      state.raiseHand = false;
+      code = ":lowerhand:";
+    } else {
+      state.raiseHand = true;
+      code = ":raisehand:";
+    }
+    const msg = state.encoder.encode(code);
+    currentRoom?.localParticipant.publishData(msg, DataPacket_Kind.RELIABLE);
+    if (currentRoom?.localParticipant) {
+      raiseHand(currentRoom?.localParticipant, !state.raiseHand);
+    }
+    const raiseHandButtonText = <HTMLSpanElement>document.querySelector("#raise-hand-button span");
+    if (raiseHandButtonText) {
+      raiseHandButtonText.innerHTML = state.raiseHand ? "Lower hand" : "Raise hand";
+    }
+  },
 };
 
 const btnSettings = <HTMLDivElement>$("settings-btn");
@@ -753,6 +859,37 @@ window.appActions = appActions;
 
 // --------------------------- event handlers ------------------------------- //
 
+function notify(message: string, type: string | undefined = undefined) {
+  if (!readyRecieveNotify) return;
+
+  let audioFile = "/assets/sounds/";
+  if (type) {
+    audioFile += `${type}.wav`;
+  } else {
+    audioFile += "notify.wav";
+  }
+  let sound = new Audio(audioFile);
+  sound.volume = 0.2;
+  sound.play();
+
+  let notifyPopup = Swal.mixin({
+    toast: true,
+    position: 'bottom-left',
+    showConfirmButton: false,
+    timer: 2000,
+    timerProgressBar: true,
+    background: '#292c3d',
+    didOpen: (toast: any) => {
+      toast.addEventListener('mouseenter', Swal.stopTimer)
+      toast.addEventListener('mouseleave', Swal.resumeTimer)
+    }
+  });
+  notifyPopup.fire({
+    title: message,
+    color: '#fff',
+  });
+}
+
 function handleLayoutItems() {
   const items = document.querySelectorAll(".box-frame .box-video-call");
   if (items.length == 1 || items.length >= 4) {
@@ -762,15 +899,58 @@ function handleLayoutItems() {
   }
 }
 
+function raiseHand(participant: Participant, isLower: boolean | undefined = undefined) {
+  if (!isLower) {
+    let sound = new Audio("/assets/sounds/notify.wav");
+    sound.volume = 0.2;
+    sound.play();
+
+    let raiseHandPopup = Swal.mixin({
+      toast: true,
+      position: 'top-right',
+      showConfirmButton: false,
+      timer: 5000,
+      timerProgressBar: true,
+      background: '#292c3d',
+      didOpen: (toast: any) => {
+        toast.addEventListener('mouseenter', Swal.stopTimer)
+        toast.addEventListener('mouseleave', Swal.resumeTimer)
+      }
+    });
+    raiseHandPopup.fire({
+      title: `<svg width="30" height="30"><use xlink:href="#RaiseHand"></use></svg>${participant.name} raise hand`,
+      color: '#fff',
+    });
+  }
+
+  const icon = <HTMLElement>$(`raise-hand-${participant.identity}`);
+  if (icon) {
+    if (isLower) {
+      icon.classList.add("hide");
+    } else {
+      icon.classList.remove("hide");
+    }
+  }
+}
+
 function handleData(msg: Uint8Array, participant?: RemoteParticipant) {
   if (!participant) return;
 
-  const chatBtn = <HTMLButtonElement>$("chat-btn");
-  if (!chatBtn.classList.contains("active")) {
-    chatBtn.classList.add("notify");
+  const str = state.decoder.decode(msg);
+  if (/^:raisehand:$/g.test(str)) {
+    raiseHand(participant);
+    return;
+  } else if (/^:lowerhand:$/g.test(str)) {
+    raiseHand(participant, true);
+    return;
   }
 
-  const str = state.decoder.decode(msg);
+  const chatBtn = <HTMLButtonElement>$("chat-btn");
+  if (!chatBtn.classList.contains("active") && !chatBtn.classList.contains("notify")) {
+    chatBtn.classList.add("notify");
+    notify(`${participant.name} <br> ${str}`, "message");
+  }
+  
   const dateNow = new Date;
   const avatar = getAvatar(participant);
   const chatMessageElm = <HTMLDivElement>$('chat-message');
@@ -807,7 +987,7 @@ function updateRoomInfo() {
   if (currentRoom?.participants) {
     num = currentRoom?.participants.size + 1;
   }
-  (<HTMLSpanElement>$("participants-counter")).innerHTML = num + " persons";
+  (<HTMLSpanElement>$("participants-counter")).innerHTML = num + " participants";
 
   if (currentRoom?.name) {
     let roomName = currentRoom?.name;
@@ -823,64 +1003,29 @@ function updateRoomInfo() {
 
 function participantConnected(participant: Participant) {
   appendLog('participant', participant.name, 'connected', participant.metadata);
-
-  if (participant.name == "bot") {
-    participant
-      .on(ParticipantEvent.TrackSubscribed, (_, pub: TrackPublication) => {
-        appendLog('subscribed to track', pub.trackSid, participant.name);
-      
-        renderScreenShare(participant)
-      }).on(ParticipantEvent.TrackUnsubscribed, (_, pub: TrackPublication) => {
-        appendLog('unsubscribed from track', pub.trackSid);
-
-        let screenShare = (<HTMLDivElement>$(`screenshare-wrapper-bot`));
-        if (screenShare) {
-          screenShare.remove();
-          handleLayouts();
-        }
-        renderScreenShare();
-      });
-  } else {
-    updateRoomInfo();
-
-    if (!participant.isCameraEnabled && !participant.isMicrophoneEnabled) {
-      appendLog('connected participant empty track', participant.name);
-      renderParticipant(participant);
-      renderScreenShare();
+  updateRoomInfo();
+  if (!participant.isCameraEnabled && !participant.isMicrophoneEnabled) {
+    appendLog('connected participant empty track', participant.name);
+    renderParticipant(participant);
+    if (currentRoom) {
+      renderScreenShare(currentRoom);
     }
-
-    participant
-      .on(ParticipantEvent.TrackSubscribed, (_, pub: TrackPublication) => {
-        appendLog('subscribed to track', pub.trackSid, participant.name);
-        renderParticipant(participant);
-        renderScreenShare();
-      })
-      .on(ParticipantEvent.TrackUnsubscribed, (_, pub: TrackPublication) => {
-        appendLog('unsubscribed from track', pub.trackSid);
-        renderParticipant(participant);
-        renderScreenShare();
-
-        let screenShare = (<HTMLDivElement>$(`screenshare-wrapper-${participant.identity}`));
-        if (screenShare) {
-          screenShare.remove();
-          handleLayouts();
-        }
-      })
-      .on(ParticipantEvent.TrackMuted, (pub: TrackPublication) => {
-        appendLog('track was muted', pub.trackSid, participant.name);
-        renderParticipant(participant);
-      })
-      .on(ParticipantEvent.TrackUnmuted, (pub: TrackPublication) => {
-        appendLog('track was unmuted', pub.trackSid, participant.name);
-        renderParticipant(participant);
-      })
-      .on(ParticipantEvent.IsSpeakingChanged, () => {
-        renderParticipant(participant);
-      })
-      .on(ParticipantEvent.ConnectionQualityChanged, () => {
-        renderParticipant(participant);
-      });
   }
+  participant
+    .on(ParticipantEvent.TrackMuted, (pub: TrackPublication) => {
+      appendLog('track was muted', pub.trackSid, participant.name);
+      renderParticipant(participant);
+    })
+    .on(ParticipantEvent.TrackUnmuted, (pub: TrackPublication) => {
+      appendLog('track was unmuted', pub.trackSid, participant.name);
+      renderParticipant(participant);
+    })
+    .on(ParticipantEvent.IsSpeakingChanged, () => {
+      renderParticipant(participant);
+    })
+    .on(ParticipantEvent.ConnectionQualityChanged, () => {
+      renderParticipant(participant);
+    });
 }
 
 function participantDisconnected(participant: RemoteParticipant) {
@@ -904,7 +1049,8 @@ function handleRoomDisconnect() {
   currentRoom.participants.forEach((p) => {
     renderParticipant(p, true);
   });
-  renderScreenShare();
+  renderScreenShare(currentRoom);
+  (<HTMLDivElement>document.querySelector(".page-video-call")).innerHTML = '<div class="container"><p style="text-align: center">Leaving the meeting...</p></div>';
 
   currentRoom = undefined;
   window.currentRoom = undefined;
@@ -942,27 +1088,37 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
 
   if (!container) return;
   const { identity, name } = participant;
-  if (name == "bot") return;
 
   let div = $(`participant-${identity}`);
   if (!div && !remove) {
     div = document.createElement('div');
     div.id = `participant-${identity}`;
     div.classList.add("box-video-call");
-    
+
+    let isHost = false;
+    if (currentRoom && currentRoom.metadata && currentRoom.metadata != "") {
+      let metaData = JSON.parse(currentRoom.metadata);
+      if (metaData.host && metaData.host != "" && identity == metaData.host) {
+        isHost = true;
+      }
+    }
+
     let avatar = getAvatar(participant);
     div.innerHTML = `
     <div class="box-video-call__inner">
+      <a href="javascript:void(0);" class="raise-hand hide" id="raise-hand-${identity}">
+        <svg width="25" height="25"><use xlink:href="#RaiseHand"></use></svg>
+      </a>
       <div class="box-info-user" id="box-avatar-${identity}">
         <div class="box-avatar ${!avatar ? "default" : ""}">
           <i class="icon-Profile"></i>
           ${avatar ? "<img src="+avatar+">" : ""}
         </div>
       </div>
-      <div class="box-video" id="box-video-${identity}" style="display:none">
+      <div class="box-video hide" id="box-video-${identity}">
         <video id="video-${identity}"></video>
         <audio id="audio-${identity}"></audio>
-        <div class="info-bar" style="display: none">
+        <div class="info-bar hide">
           <div style="text-align: center;">
             <span id="codec-${identity}" class="codec"></span>
             <span id="size-${identity}" class="size"></span>
@@ -971,17 +1127,18 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
         </div>
       </div>
       <span class="name" id="name-${identity}">${name}</span>
-      <div class="group-button" id="mic-${identity}" style="display:none">
-        <a href="javascript:void(0);" class="item ic-voice">
+      <div class="group-button">
+        ${isHost ? `<span class="p-host">host</span>`: ""}
+        <a href="javascript:void(0);" class="item ic-voice hide" id="mic-${identity}">
           <i class="icon-Voiceoff"></i>
         </a>
       </div>
-      <div class="box-voice" id="speaking-${identity}" style="display:none">
+      <div class="box-voice hide" id="speaking-${identity}">
         <div class="box-voice__inner"><div></div><div></div><div></div><div></div><div></div></div>
       </div>
     </div>
     ${participant instanceof RemoteParticipant ?
-      `<div class="volume-control" style="display:none">
+      `<div class="volume-control hide">
       <input id="volume-${identity}" type="range" min="0" max="1" step="0.1" value="1" orient="vertical" />
     </div>` : ''}`;
     container.appendChild(div);
@@ -993,6 +1150,9 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
     };
 
     handleLayoutItems();
+    if (participant instanceof RemoteParticipant) {
+      notify(`${name} joined`, "join-room");
+    }
   }
   const videoElm = <HTMLVideoElement>$(`video-${identity}`);
   const audioELm = <HTMLAudioElement>$(`audio-${identity}`);
@@ -1007,6 +1167,9 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
       audioELm.src = '';
     }
     handleLayoutItems();
+    if (participant instanceof RemoteParticipant) {
+      notify(`${name} has left the meeting`, "left-room");
+    }
     return;
   }
 
@@ -1023,14 +1186,14 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
     nameElm.innerHTML += ' (you)';
   }
   if (participant.isSpeaking) {
-    speakingElm.style.display = "unset";
+    speakingElm.classList.remove("hide");
     participantElm?.classList.add("speaking");
 
     if (div!.offsetTop - container.offsetTop >= div!.offsetHeight) {
       container.insertAdjacentElement("afterbegin", div!);
     }
   } else {
-    speakingElm.style.display = "none";
+    speakingElm.classList.add("hide");
     participantElm?.classList.remove("speaking");
   }
 
@@ -1045,8 +1208,8 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
   const boxAvatar = <HTMLDivElement>$(`box-avatar-${identity}`);
   const boxVideo = <HTMLDivElement>$(`box-video-${identity}`);
   if (cameraEnabled) {
-    boxAvatar.style.display = "none";
-    boxVideo.style.display = "";
+    boxAvatar.classList.add("hide");
+    boxVideo.classList.remove("hide");
     if (participant instanceof LocalParticipant) {
       // flip
       // videoElm.style.transform = 'scale(-1, 1)';
@@ -1067,8 +1230,8 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
     }
     cameraPub?.videoTrack?.attach(videoElm);
   } else {
-    boxVideo.style.display = "none";
-    boxAvatar.style.display = "";
+    boxVideo.classList.add("hide");
+    boxAvatar.classList.remove("hide");
     // clear information display
     $(`size-${identity}`)!.innerHTML = '';
     if (cameraPub?.videoTrack) {
@@ -1083,7 +1246,7 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
   const micEnabled = micPub && micPub.isSubscribed && !micPub.isMuted;
   if (micEnabled) {
     if (participant instanceof LocalParticipant) {
-      (<HTMLButtonElement>$("toggle-audio-button")).innerHTML = '<i class="icon-Voice"></i><span class="tooltiptext tooltip-top">Turn off Mic</span>';
+      (<HTMLButtonElement>$("toggle-audio-button")).innerHTML = '<i class="icon-Voice"></i><span class="tooltiptext">Turn off Mic</span>';
     } else {
       // don't attach local audio
       audioELm.onloadeddata = () => {
@@ -1094,126 +1257,106 @@ function renderParticipant(participant: Participant, remove: boolean = false) {
       };
       micPub?.audioTrack?.attach(audioELm);
     }
-    micElm.style.display = "none";
+    micElm.classList.add("hide");
   } else {
     if (participant instanceof LocalParticipant) {
-      (<HTMLButtonElement>$("toggle-audio-button")).innerHTML = '<i class="icon-Voiceoff"></i><span class="tooltiptext tooltip-top">Turn on Mic</span>';
+      (<HTMLButtonElement>$("toggle-audio-button")).innerHTML = '<i class="icon-Voiceoff"></i><span class="tooltiptext">Turn on Mic</span>';
     }
-    micElm.style.display = "block";
+    micElm.classList.remove("hide");
   }
 }
 
-function renderScreenShare(participant: Participant | undefined = undefined) {
+function renderScreenShare(room: Room) {
   const div = <HTMLDivElement>$('screenshare-area');
 
-  if (participant) {
-    const videoPub = participant.getTrack(Track.Source.Camera);
-    const audioPub = participant.getTrack(Track.Source.Microphone);
+  if (room.state !== ConnectionState.Connected) {
+    state.layout = 1;
+    div.classList.add("hide")
+    return;
+  }
+  
+  let screenSharePub = [];
 
-    if (videoPub || audioPub) {
-      state.layout = 2;
-      div.style.display = "";
+  // get screen share from local
+  let screenSharePubLocal: TrackPublication | undefined = room.localParticipant.getTrack(
+    Track.Source.ScreenShare,
+  );
+  let screenShareAudioPubLocal: RemoteTrackPublication | undefined;
+  if(screenSharePubLocal) {
+    screenSharePub.push({track: screenSharePubLocal, participant: room.localParticipant})
+  }
 
-      let screenshare = <HTMLDivElement>$(`screenshare-wrapper-${participant.identity}`);
+  // get screen share from participants
+  room.participants.forEach((p) => {
+    const pub = p.getTrack(Track.Source.ScreenShare);
+    if (pub?.isSubscribed) {
+      screenSharePub.push({track: pub, participant: p})
+    }
+    const audioPub = p.getTrack(Track.Source.ScreenShareAudio);
+    if (audioPub?.isSubscribed) {
+      screenShareAudioPubLocal = audioPub;
+    }
+  });
+  
+  if (screenSharePub.length > 0) {
+    state.layout = 2;
+    div.classList.remove("hide");
+
+    screenSharePub.forEach((screenShareInfo) => {
+      let screenshare = <HTMLDivElement>$(`screenshare-wrapper-${screenShareInfo.participant.identity}`);
       if (!screenshare) {
         div.insertAdjacentHTML("beforeend", `
-        <div class="box-video__outer" id="screenshare-wrapper-${participant.identity}">
-          <div class="screenshare-info">
-            <span id="screenshare-info-${participant.identity}"> </span>
-            <span id="screenshare-resolution-${participant.identity}"> </span>
-          </div>
+        <div class="box-video__outer" id="screenshare-wrapper-${screenShareInfo.participant.identity}">
           <div class="box-video__inner">
-            <video poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" id="screenshare-video-${participant.identity}" autoplay playsinline controls class="hide-controls-timeline hide-play-button hide-volume-slider hide-mute-button"></video>
-            <audio id="screenshare-audio-${participant.identity}" autoplay></audio>
+            <video poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" id="screenshare-video-${screenShareInfo.participant.identity}" autoplay playsinline${isMobile ? " controls" : ""} class="hide-controls-timeline hide-play-button hide-volume-slider hide-mute-button"></video>
           </div>
-          <div class="user-share-tooltip">Screenshare from ${participant.name} <span id="screenshare-resolution-${participant.identity}"> </span></div>
+          ${!isMobile ? `
+          <a href="javascript:void(0);" class="ic-maximize" id="screenshare-fullscreen-${screenShareInfo.participant.identity}" style="opacity:0">
+            <i class="icon-Maximize" style="background-color: rgba(28,31,45,.7);"></i>
+          </a>
+          ` : ""}
+          <div class="user-share-tooltip">Screenshare from ${screenShareInfo.participant.name} <span id="screenshare-resolution-${screenShareInfo.participant.identity}"> </span></div>
         </div>
         `);
-        handleLayouts();
-      }
 
-      const videoEnabled = videoPub && videoPub.isSubscribed && !videoPub.isMuted;
-      if (videoPub && videoEnabled) {
-        const videoElm = $(`screenshare-video-${participant.identity}`) as HTMLVideoElement;
-        videoPub.videoTrack?.attach(videoElm);
+        handleLayouts();
+
+        const videoElm = $(`screenshare-video-${screenShareInfo.participant.identity}`) as HTMLVideoElement & {
+          mozRequestFullScreen(): Promise<void>;
+          webkitRequestFullscreen(): Promise<void>;
+          msRequestFullscreen(): Promise<void>;
+        };
+        screenShareInfo.track.videoTrack?.attach(videoElm);
+        if (screenShareAudioPubLocal) {
+          screenShareAudioPubLocal.audioTrack?.attach(videoElm);
+        }
         videoElm.onresize = () => {
-          updateVideoSize(videoElm, <HTMLSpanElement>$(`screenshare-resolution-${participant.identity}`));
+          updateVideoSize(videoElm, <HTMLSpanElement>$(`screenshare-resolution-${screenShareInfo.participant.identity}`));
         };
         videoElm.addEventListener("click", (e: Event) => {
           e.preventDefault();
           return false;
         });
-      }
 
-      const audioEnabled = audioPub && audioPub.isSubscribed && !audioPub.isMuted && !(currentRoom?.localParticipant.identity == participant.identity && participant.name == "bot");
-      if (audioPub && audioEnabled) {
-        const audioELm = <HTMLAudioElement>$(`screenshare-audio-${participant.identity}`);
-        audioPub.audioTrack?.attach(audioELm);
-      }
-    } else {
-      state.layout = 1;
-      div.style.display = 'none';
-    }
-  } else {
-    if (!currentRoom || currentRoom.state !== ConnectionState.Connected) {
-      state.layout = 1;
-      div.style.display = 'none';
-      return;
-    }
-    
-    let screenSharePub = [];
-
-    // get screen share from local
-    let screenSharePubLocal: TrackPublication | undefined = currentRoom.localParticipant.getTrack(
-      Track.Source.ScreenShare,
-    );
-    if(screenSharePubLocal) {
-      screenSharePub.push({track: screenSharePubLocal, participant: currentRoom.localParticipant})
-    }
-
-    // get screen share from participants
-    currentRoom.participants.forEach((p) => {
-      const pub = p.getTrack(Track.Source.ScreenShare);
-      if (pub?.isSubscribed) {
-        screenSharePub.push({track: pub, participant: p})
-      }
-    });
-    
-    if (screenSharePub.length > 0) {
-      state.layout = 2;
-      div.style.display = "";
-
-      screenSharePub.forEach((screenShareInfo) => {
-        let screenshare = <HTMLDivElement>$(`screenshare-wrapper-${screenShareInfo.participant.identity}`);
-        if (!screenshare) {
-          div.insertAdjacentHTML("beforeend", `
-          <div class="box-video__outer" id="screenshare-wrapper-${screenShareInfo.participant.identity}">
-            <div class="box-video__inner">
-              <video poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" id="screenshare-video-${screenShareInfo.participant.identity}" autoplay playsinline controls class="hide-controls-timeline hide-play-button hide-volume-slider hide-mute-button"></video>
-            </div>
-            <div class="user-share-tooltip">Screenshare from ${screenShareInfo.participant.name} <span id="screenshare-resolution-${screenShareInfo.participant.identity}"> </span></div>
-          </div>
-          `);
-
-          handleLayouts();
-
-          const videoElm = <HTMLVideoElement>$(`screenshare-video-${screenShareInfo.participant.identity}`);
-          screenShareInfo.track.videoTrack?.attach(videoElm);
-          videoElm.onresize = () => {
-            updateVideoSize(videoElm, <HTMLSpanElement>$(`screenshare-resolution-${screenShareInfo.participant.identity}`));
-          };
-          videoElm.addEventListener("click", (e: Event) => {
-            e.preventDefault();
-            return false;
+        if (!isMobile) {
+          const fullScreenBtn = <HTMLAnchorElement>$(`screenshare-fullscreen-${screenShareInfo.participant.identity}`);
+          fullScreenBtn.addEventListener("click", () => {
+            if (videoElm.requestFullscreen) {
+              videoElm.requestFullscreen();
+            } else if (videoElm.mozRequestFullScreen) { /* Firefox */
+              videoElm.mozRequestFullScreen();
+            } else if (videoElm.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+              videoElm.webkitRequestFullscreen();
+            } else if (videoElm.msRequestFullscreen) { /* IE/Edge */
+              videoElm.msRequestFullscreen();
+            }
           });
         }
-      });
-    } else {
-      if (!$("screenshare-wrapper-bot")) {
-        state.layout = 1;
-        div.style.display = 'none';
       }
-    }
+    });
+  } else {
+    state.layout = 1;
+    div.classList.add("hide");
   }
 }
 
@@ -1249,7 +1392,7 @@ function handleLayouts() {
           participantsArea2?.querySelector(".simplebar-content")?.append(...participantsArea.childNodes);
         } else {
           participantsArea2.append(...participantsArea.childNodes);
-          if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(navigator.userAgent)) {
+          if (isMobile) {
             layout2.querySelector(".scrollbar-outer")?.classList.remove("scrollbar-outer");
           } else {
             new SimpleBar(participantsArea2);
@@ -1263,7 +1406,7 @@ function handleLayouts() {
       layout2.append(boxChat);
     }
   } else {
-    let participantsArea2 = $("participants-area-2")?.querySelector(".simplebar-content");
+    let participantsArea2 = isMobile ? $("participants-area-2") : $("participants-area-2")?.querySelector(".simplebar-content");
     if (participantsArea2 && participantsArea2?.childElementCount > 0) {
       let participantsArea = $("participants-area");
       if (participantsArea) {
@@ -1294,7 +1437,7 @@ function renderBitrate() {
         totalBitrate += t.track.currentBitrate;
       }
 
-      if (t.trackInfo?.source === TrackSource.CAMERA) {
+      if (t.source === Track.Source.Camera) {
         if (t.videoTrack instanceof RemoteVideoTrack) {
           const codecElm = $(`codec-${p.identity}`)!;
           codecElm.innerHTML = t.videoTrack.getDecoderImplementation() ?? '';
@@ -1418,14 +1561,14 @@ function updateButtonsForPublishState() {
   // video
   setButtonState(
     'toggle-video-button',
-    `${lp.isCameraEnabled ? '<i class="icon-Video"></i><span class="tooltiptext tooltip-top">Turn off Camera</span>' : '<i class="icon-Videooff"></i><span class="tooltiptext tooltip-top">Turn on Camera</span>'}`,
+    `${lp.isCameraEnabled ? '<i class="icon-Video"></i><span class="tooltiptext">Turn off Camera</span>' : '<i class="icon-Videooff"></i><span class="tooltiptext">Turn on Camera</span>'}`,
     false,
   );
 
   // audio
   setButtonState(
     'toggle-audio-button',
-    `${lp.isMicrophoneEnabled ? '<i class="icon-Voice"></i><span class="tooltiptext tooltip-top">Turn off Mic</span>' : '<i class="icon-Voiceoff"></i><span class="tooltiptext tooltip-top">Turn on Mic</span>'}`,
+    `${lp.isMicrophoneEnabled ? '<i class="icon-Voice"></i><span class="tooltiptext">Turn off Mic</span>' : '<i class="icon-Voiceoff"></i><span class="tooltiptext">Turn on Mic</span>'}`,
     false,
   );
 
@@ -1433,10 +1576,10 @@ function updateButtonsForPublishState() {
   const shareScreenBtn = <HTMLButtonElement>$("share-screen-button");
   if (lp.isScreenShareEnabled) {
     shareScreenBtn.classList.add("active");
-    shareScreenBtn.innerHTML = '<i class="icon-sharescreen"></i><span class="tooltiptext tooltip-top">Stop presenting</span>';
+    shareScreenBtn.innerHTML = '<i class="icon-sharescreen"></i><span class="tooltiptext">Stop presenting</span>';
   } else {
     shareScreenBtn.classList.remove("active");
-    shareScreenBtn.innerHTML = '<i class="icon-sharescreen"></i><span class="tooltiptext tooltip-top">Present now</span>';
+    shareScreenBtn.innerHTML = '<i class="icon-sharescreen"></i><span class="tooltiptext">Present now</span>';
   }
 }
 

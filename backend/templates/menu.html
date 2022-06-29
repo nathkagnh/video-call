@@ -15,6 +15,9 @@
                 <li{{if eq . "rooms"}} class="active"{{end}}>
                     <a href="/manager"><i class="fas fa-users-class"></i> <span>Rooms</span></a>
                 </li>
+                <li{{if eq . "pmr"}} class="active"{{end}}>
+                    <a href="/manager/room/pmr"><i class="fas fa-users"></i> <span>PMR</span></a>
+                </li>
                 <li{{if eq . "streams"}} class="active"{{end}}>
                     <a href="/manager/streams"><i class="fad fa-stream"></i> <span>Stream</span></a>
                 </li>

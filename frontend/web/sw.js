@@ -51,4 +51,20 @@ workbox.routing.registerRoute(
     })
 );
 
+workbox.routing.registerRoute(
+    new RegExp('/assets/sounds/'),
+    new workbox.strategies.CacheFirst({
+        cacheName: 'SOUND',
+        plugins: [
+            new workbox.expiration.Plugin({
+                maxEntries: 100,
+                maxAgeSeconds: 1 * 24 * 60 * 60,
+            }),
+            new workbox.cacheableResponse.Plugin({
+                statuses: [200],
+            })
+        ],
+    })
+);
+
 workbox.precaching.precacheAndRoute([]);

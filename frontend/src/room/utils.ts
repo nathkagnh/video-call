@@ -81,8 +81,9 @@ let emptyVideoStreamTrack: MediaStreamTrack | undefined;
 export function getEmptyVideoStreamTrack() {
   if (!emptyVideoStreamTrack) {
     const canvas = document.createElement('canvas');
-    canvas.width = 2;
-    canvas.height = 2;
+    // the canvas size is set to 16, because electron apps seem to fail with smaller values
+    canvas.width = 16;
+    canvas.height = 16;
     canvas.getContext('2d')?.fillRect(0, 0, canvas.width, canvas.height);
     // @ts-ignore
     const emptyStream = canvas.captureStream();
@@ -112,4 +113,19 @@ export function getEmptyAudioStreamTrack() {
     emptyAudioStreamTrack.enabled = false;
   }
   return emptyAudioStreamTrack;
+}
+
+export class Future<T> {
+  promise: Promise<T>;
+
+  resolve!: (arg: T) => void;
+
+  reject!: (e: any) => void;
+
+  constructor() {
+    this.promise = new Promise<T>((resolve, reject) => {
+      this.resolve = resolve;
+      this.reject = reject;
+    });
+  }
 }

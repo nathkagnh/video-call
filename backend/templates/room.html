@@ -63,11 +63,11 @@
                                                     {{if .Camera_TrackID}}
                                                     <li class="call-item">
                                                         {{if .CameraEnable}}
-                                                        <a href="/manager/room/toggle-cam-participant?room-name={{$.roomName}}&sid={{.ID}}&enable=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Disable camera">
+                                                        <a href="/manager/room/toggle-cam-participant?room={{$.room}}&sid={{.ID}}&enable=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Disable camera">
                                                             <i class="fas fa-webcam"></i>
                                                         </a>
                                                         {{else}}
-                                                        <a href="/manager/room/toggle-cam-participant?room-name={{$.roomName}}&sid={{.ID}}&enable=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Enable camera">
+                                                        <a href="/manager/room/toggle-cam-participant?room={{$.room}}&sid={{.ID}}&enable=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Enable camera">
                                                             <i class="fas fa-webcam-slash text-danger"></i>
                                                         </a>
                                                         {{end}}
@@ -76,11 +76,11 @@
                                                     {{if .Microphone_TrackID}}
                                                     <li class="call-item">
                                                         {{if .MicrophoneMuted}}
-                                                        <a href="/manager/room/toggle-mic-participant?room-name={{$.roomName}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Unmute">
+                                                        <a href="/manager/room/toggle-mic-participant?room={{$.room}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=false" title="" data-placement="top" data-toggle="tooltip" data-original-title="Unmute">
                                                             <i class="fas fa-microphone-slash text-danger"></i>
                                                         </a>
                                                         {{else}}
-                                                        <a href="/manager/room/toggle-mic-participant?room-name={{$.roomName}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Mute">
+                                                        <a href="/manager/room/toggle-mic-participant?room={{$.room}}&user-name={{.Name}}&track-sid={{.Microphone_TrackID}}&muted=true" title="" data-placement="top" data-toggle="tooltip" data-original-title="Mute">
                                                             <i class="fas fa-microphone"></i>
                                                         </a>
                                                         {{end}}
@@ -88,9 +88,9 @@
                                                     {{end}}
                                                 </ul>
                                                 {{if .ScreenShare}}
-                                                <a class="btn btn-success" href="/manager/room/turn-off-screen-sharing?room-name={{$.roomName}}&sid={{.ID}}">Turn off screen sharing</a>
+                                                <a class="btn btn-success" href="/manager/room/turn-off-screen-sharing?room={{$.room}}&sid={{.ID}}">Turn off screen sharing</a>
                                                 {{end}}
-                                                <a class="btn btn-danger" href="/manager/room/kick-out?room-name={{$.roomName}}&user-name={{.Name}}">Kick out</a>
+                                                <a class="btn btn-danger" href="/manager/room/kick-out?room={{$.room}}&user-name={{.Identity}}">Kick out</a>
                                             </div>
                                         </td>
                                     </tr>

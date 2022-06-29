@@ -30,6 +30,16 @@ type LivekitServerConfig struct {
 
 type RoomMetaData struct {
 	RealName string `json:"real_name"`
+	Host     string `json:"host"`
+}
+
+type PMR struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	HostName     string `json:"host_name"`
+	Passcode     string `json:"passcode"`
+	CreationTime int32  `json:"creation_time"`
 }
 
 func main() {
@@ -62,54 +72,68 @@ func main() {
 			"verStatic":        time.Now().Unix(),
 		}
 		if room != "" {
+			data["ended"] = true
 			roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
 			res, err := roomClient.ListRooms(context.Background(), &livekit.ListRoomsRequest{
 				Names: []string{room},
 			})
-			if err != nil {
-				c.Redirect(http.StatusFound, "/")
-				return
-			} else {
+			if err == nil {
 				log.Printf("room detail: %v", res)
-				if len(res.Rooms) != 1 {
-					c.Redirect(http.StatusFound, "/")
-					return
-				}
+				if len(res.Rooms) == 1 {
+					roomName := res.Rooms[0].Name
+					if res.Rooms[0].Metadata != "" {
+						metaData := RoomMetaData{}
+						err := json.Unmarshal([]byte(res.Rooms[0].Metadata), &metaData)
+						if err == nil {
+							if metaData.RealName != "" {
+								roomName = metaData.RealName
+							}
 
-				roomName := res.Rooms[0].Name
-				if res.Rooms[0].Metadata != "" {
-					metaData := RoomMetaData{}
-					err := json.Unmarshal([]byte(res.Rooms[0].Metadata), &metaData)
-					if err != nil {
-						c.Redirect(http.StatusFound, "/")
-						return
-					}
-					if metaData.RealName != "" {
-						roomName = metaData.RealName
+							var ctx = context.Background()
+							rdb := redis.NewClient(&redis.Options{
+								Addr:     "127.0.0.1:6379",
+								Password: "",
+								DB:       0,
+							})
+							key := "room_info:" + room
+							passcode, err := rdb.Get(ctx, key).Result()
+							if err != nil && err != redis.Nil {
+								panic(err)
+							}
+
+							data = gin.H{
+								"creationTime":     res.Rooms[0].CreationTime,
+								"room":             room,
+								"roomName":         roomName,
+								"requiredPasscode": passcode != "",
+								"verStatic":        time.Now().Unix(),
+							}
+						}
 					}
 				} else {
-					c.Redirect(http.StatusFound, "/")
-					return
-				}
-
-				var ctx = context.Background()
-				rdb := redis.NewClient(&redis.Options{
-					Addr:     "127.0.0.1:6379",
-					Password: "",
-					DB:       0,
-				})
-				key := "room_info:" + room
-				passcode, err := rdb.Get(ctx, key).Result()
-				if err != nil && err != redis.Nil {
-					panic(err)
-				}
-
-				data = gin.H{
-					"creationTime":     res.Rooms[0].CreationTime,
-					"room":             room,
-					"roomName":         roomName,
-					"requiredPasscode": passcode != "",
-					"verStatic":        time.Now().Unix(),
+					pmr, err := getPMR(room)
+					if err == nil && pmr.ID != "" {
+						metaData := RoomMetaData{
+							RealName: pmr.Name,
+							Host:     pmr.Host,
+						}
+						metaDataJsonString, err := json.Marshal(metaData)
+						if err == nil {
+							roomClient := lksdk.NewRoomServiceClient(serverConfig.Host, serverConfig.ApiKey, serverConfig.ApiSecret)
+							_, err = roomClient.CreateRoom(context.Background(), &livekit.CreateRoomRequest{
+								Name:     pmr.ID,
+								Metadata: string(metaDataJsonString),
+							})
+							if err == nil {
+								data = gin.H{
+									"room":             pmr.ID,
+									"roomName":         pmr.Name,
+									"requiredPasscode": true,
+									"verStatic":        time.Now().Unix(),
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -287,4 +311,29 @@ func resize(src string, w int, h int, savePath string) error {
 	}
 
 	return nil
+}
+
+func getPMR(ID string) (PMR, error) {
+	var ctx = context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	var pmr PMR
+	key := "pmr:" + ID
+	data, err := rdb.Get(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		log.Println(err)
+		return pmr, err
+	}
+	if data != "" {
+		err := json.Unmarshal([]byte(data), &pmr)
+		if err != nil {
+			return pmr, err
+		}
+	}
+
+	return pmr, nil
 }

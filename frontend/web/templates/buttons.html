@@ -2,19 +2,19 @@
 <div class="group-main-button show" onmouseleave="appActions.hideRoomButtons()">
     <button type="button" disabled class="item voice tooltip" id="toggle-audio-button" onclick="appActions.toggleAudio()">
         <i class="icon-Voiceoff"></i>
-        <span class="tooltiptext tooltip-top">Turn on Mic</span>
+        <span class="tooltiptext">Turn on Mic</span>
     </button>
     <button type="button" disabled class="item video tooltip" id="toggle-video-button" onclick="appActions.toggleVideo()">
         <i class="icon-Videooff"></i>
-        <span class="tooltiptext tooltip-top">Turn on Camera</span>
+        <span class="tooltiptext">Turn on Camera</span>
     </button>
     <button type="button" disabled class="item share-screen tooltip" id="share-screen-button" onclick="appActions.shareScreen()">
         <i class="icon-sharescreen"></i>
-        <span class="tooltiptext tooltip-top">Present now</span>
+        <span class="tooltiptext">Present now</span>
     </button>
     <button type="button" class="item chat tooltip" id="chat-btn" onclick="appActions.toggleChat()">
         <i class="icon-Chat"></i>
-        <span class="tooltiptext tooltip-top">Chats</span>
+        <span class="tooltiptext">Chats</span>
     </button>
     <div class="item settings tooltip" id="settings-btn">
         <i class="icon-Setting"></i>
@@ -43,8 +43,12 @@
                 </div>
             </div>
         </div>
-        <span class="tooltiptext tooltip-top">Settings</span>
+        <span class="tooltiptext">Settings</span>
     </div>
+    <button type="button" class="btn raise-hand" id="raise-hand-button" onclick="appActions.raiseHand()">
+        <svg width="25" height="25"><use xlink:href="#RaiseHand"></use></svg>
+        <span>Raise hand</span>
+    </button>
     <button type="button" class="btn end-meeting open-popup-link" onclick="appActions.disconnectRoom()">
         <i class="icon-endcall"></i>
         <span>LEAVE</span>

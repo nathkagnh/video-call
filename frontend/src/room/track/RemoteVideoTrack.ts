@@ -1,11 +1,11 @@
 import { debounce } from 'ts-debounce';
+import log from '../../logger';
 import { TrackEvent } from '../events';
 import { computeBitrate, monitorFrequency, VideoReceiverStats } from '../stats';
 import { getIntersectionObserver, getResizeObserver, ObservableMediaElement } from '../utils';
 import RemoteTrack from './RemoteTrack';
 import { attachToElement, detachTrack, Track } from './Track';
 import { AdaptiveStreamSettings } from './types';
-import log from '../../logger';
 
 const REACTION_DELAY = 100;
 
@@ -110,6 +110,8 @@ export default class RemoteVideoTrack extends RemoteTrack {
       // the tab comes into focus for the first time.
       this.debouncedHandleResize();
       this.updateVisibility();
+    } else {
+      log.warn('visibility resize observer not triggered');
     }
   }
 
@@ -294,9 +296,9 @@ class HTMLElementInfo implements ElementInfo {
 
   handleVisibilityChanged?: () => void;
 
-  constructor(element: HTMLMediaElement, visible: boolean = false) {
+  constructor(element: HTMLMediaElement, visible?: boolean) {
     this.element = element;
-    this.visible = visible;
+    this.visible = visible ?? isElementInViewport(element);
     this.visibilityChangedAt = 0;
   }
 
@@ -305,7 +307,7 @@ class HTMLElementInfo implements ElementInfo {
   }
 
   height(): number {
-    return this.element.clientWidth;
+    return this.element.clientHeight;
   }
 
   observe() {
@@ -331,4 +333,30 @@ class HTMLElementInfo implements ElementInfo {
     getIntersectionObserver()?.unobserve(this.element);
     getResizeObserver()?.unobserve(this.element);
   }
+}
+
+// does not account for occlusion by other elements
+function isElementInViewport(el: HTMLElement) {
+  let top = el.offsetTop;
+  let left = el.offsetLeft;
+  const width = el.offsetWidth;
+  const height = el.offsetHeight;
+  const { hidden } = el;
+  const { opacity, display } = getComputedStyle(el);
+
+  while (el.offsetParent) {
+    el = el.offsetParent as HTMLElement;
+    top += el.offsetTop;
+    left += el.offsetLeft;
+  }
+
+  return (
+    top < window.pageYOffset + window.innerHeight &&
+    left < window.pageXOffset + window.innerWidth &&
+    top + height > window.pageYOffset &&
+    left + width > window.pageXOffset &&
+    !hidden &&
+    (opacity !== '' ? parseFloat(opacity) > 0 : true) &&
+    display !== 'none'
+  );
 }

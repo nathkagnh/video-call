@@ -4,20 +4,20 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
         <title>
-            Fpt Online Meeting{{if .roomName}} - Room {{.roomName}}{{end}}
+            FPT Online Meeting{{if .roomName}} - Room {{.roomName}}{{end}}
         </title>
         {{if .roomName}}
         <!-- Facebook Meta Tags -->
         <meta property="og:url" content="https://meeting.fptonline.net/{{.room}}">
         <meta property="og:type" content="website">
-        <meta property="og:title" content="Fpt Online Meeting">
+        <meta property="og:title" content="FPT Online Meeting">
         <meta property="og:description" content="Scan the QR code to join room {{.roomName}}">
         <meta property="og:image" content="https://meeting.fptonline.net/qr-code/{{.room}}">
         <!-- Twitter Meta Tags -->
         <meta name="twitter:card" content="summary_large_image">
         <meta property="twitter:domain" content="https://meeting.fptonline.net">
         <meta property="twitter:url" content="https://meeting.fptonline.net/{{.room}}">
-        <meta name="twitter:title" content="Fpt Online Meeting">
+        <meta name="twitter:title" content="FPT Online Meeting">
         <meta name="twitter:description" content="Scan the QR code to join room {{.roomName}}">
         <meta name="twitter:image" content="https://meeting.fptonline.net/qr-code/{{.room}}">
         {{end}}
@@ -102,9 +102,85 @@
             button {
                 cursor: pointer !important;
             }
+            .top-header .group-button .list-frame [class*=icon-] {
+                color: #fff;
+            }
+
+            .p-host {
+                -webkit-box-align: center;
+                -ms-flex-align: center;
+                -webkit-box-pack: center;
+                -ms-flex-pack: center;
+                align-items: center;
+                background: #393e56;
+                border-radius: 4px;
+                display: -webkit-box;
+                display: -ms-flexbox;
+                display: flex;
+                font-size: 16px;
+                height: 32px;
+                justify-content: center;
+                padding: 0 16px;
+            }
+            .page-video-call.list-frame .wrap-video .box-video-call__inner .group-button .p-host {
+                font-size: 12px;
+                height: 20px;
+                width: 20px;
+            }
+            .group-main-button .raise-hand {
+                border-radius: 6px;
+                color: var(--color-main);
+                font-size: 16px;
+                font-weight: 500;
+                padding: 14px 16px 14px 0;
+                text-align: center;
+                white-space: nowrap;
+            }
+            @media (max-width: 767px) {
+                .group-main-button .item.chat {
+                    display: flex !important;
+                }
+                .group-main-button .raise-hand span {
+                    display: none !important;
+                }
+                .group-main-button .raise-hand svg {
+                    width: 30px;
+                    height: 30px;
+                }
+            }
+
+            .box-video__outer:hover .ic-maximize {
+                opacity: 1 !important;
+            }
+
+            .page-video-call .container .box-video-call__inner .raise-hand {
+                color: var(--color-main);
+                font-size: 16px;
+                position: absolute;
+                left: 7px;
+                top: 30px;
+            }
+            @media (max-width: 767px) {
+                .page-video-call.list-frame .wrap-video.full-screen .box-video__outer-scroll {
+                    bottom: 90px !important;
+                }
+                .page-login .box-login .form .page-video-call.list-frame .wrap-video .box-video-call__inner .form-control.passcode, .page-login .box-login .form .page-video-call.list-frame .wrap-video .box-video-call__inner .form-control.room, .page-video-call.list-frame .wrap-video .box-video-call__inner .name, .page-video-call.list-frame .wrap-video .box-video-call__inner .page-login .box-login .form .form-control.passcode, .page-video-call.list-frame .wrap-video .box-video-call__inner .page-login .box-login .form .form-control.room {
+                    width: 100px !important;
+                }
+                .page-video-call.list-frame .wrap-video.full-screen .box-video-call__inner .box-info-user {
+                    width: 50px !important;
+                }
+            }
         </style>
     </head>
 <body>
+    <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <defs>
+            <symbol id="RaiseHand" viewBox="0 0 64 64">
+                <path fill="#FDCA47" d="M51.395 32c-7.891 0-7.449 6-11.395 6v-4H8v10c0 9.188 3.947 18 15.779 18 19.725 0 17.752-18 31.561-26 1.711-.992-.008-4-3.945-4z"></path><path fill="#CC9200" d="M51.395 32c-.473 0-.91.023-1.326.064 3.436.33 4.877 3.004 3.271 3.936-13.508 7.826-11.928 25.213-30.316 25.964.255.009.494.036.757.036 19.723 0 17.75-18 31.559-26 1.711-.992-.008-4-3.945-4z"></path><path fill="#FDCA47" d="M32 10.043V38h8V10.043c0-5.391-8-5.391-8 0zm-8-3.998V38h8V6.045c0-5.393-8-5.393-8 0zm-8 1.999V38h8V8.044c0-5.391-8-5.391-8 0zm-8 8.001V40h8V16.045c0-5.393-8-5.393-8 0z"></path><path fill="#CC9200" d="M35.004 6.129c1.613.379 3 1.674 3 3.914V38H40V10.043c0-3.15-2.727-4.444-4.996-3.914zM27 2.115c1.617.379 3.002 1.674 3.002 3.916V30H32V6.031c0-3.152-2.727-4.446-5-3.916zm-8 2.003c1.617.377 3.002 1.671 3.002 3.912V30H24V8.03c0-3.15-2.727-4.446-5-3.912zm-7.998 7.999c1.615.378 3.002 1.672 3.002 3.914V32H16V16.031c0-3.15-2.727-4.447-4.998-3.914z"></path><path fill="#CC9200" d="M40 36h-2c-3.824 1.178-10 6-10 13.675C30.043 42.814 36 38 40 38v-2zm-22.5-4s-2 0-5.5 2c0 0 3-2.5 3-6 .5 4 2.5 4 2.5 4zm8-.5s-3-.5-5.5.5c0 0 2.5-1.5 3-5.5.5 4 2.5 5 2.5 5zm8.5.5s-2-1.5-5.5-.5c0 0 2.5-1.5 2.5-5.5 0 4 3 6 3 6z"></path>
+            </symbol>
+        </defs>
+    </svg>
     {{template "login" .}}
     {{template "header" .creationTime}}
     {{template "room"}}

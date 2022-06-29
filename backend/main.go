@@ -3,17 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"backend-meeting.fptonline.net/internal/config"
 	"backend-meeting.fptonline.net/internal/stream"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type RoomRender struct {
@@ -27,7 +31,8 @@ type RoomRender struct {
 
 type ParticipantRender struct {
 	ID         string `json:"sid"`
-	Name       string `json:"identity"`
+	Identity   string `json:"identity"`
+	Name       string `json:"name"`
 	JoinedAt   string
 	Permission string
 
@@ -51,6 +56,15 @@ var wsupgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+}
+
+type PMR struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	HostName     string `json:"host_name"`
+	Passcode     string `json:"passcode"`
+	CreationTime int32  `json:"creation_time"`
 }
 
 func main() {
@@ -117,13 +131,156 @@ func main() {
 
 		c.HTML(http.StatusOK, "room.html", gin.H{
 			"nav":             "rooms",
+			"room":            roomDetail.Name,
 			"roomName":        realName,
 			"listParticipant": listParticipant,
 		})
 	})
 
+	r.GET("/manager/room/pmr", func(c *gin.Context) {
+		data := gin.H{
+			"nav": "pmr",
+		}
+		listPMR, err := getAllPMR()
+		if err == nil {
+			data["list"] = listPMR
+		}
+
+		c.HTML(http.StatusOK, "pmr.html", data)
+	})
+
+	r.GET("/manager/room/create-pmr", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "edit-pmr.html", gin.H{
+			"nav": "pmr",
+		})
+	})
+
+	r.POST("/manager/room/create-pmr", func(c *gin.Context) {
+		host := c.PostForm("host")
+		hostName := c.PostForm("host-name")
+		name := c.PostForm("name")
+		passcode := c.PostForm("passcode")
+
+		data := gin.H{
+			"nav": "pmr",
+		}
+		var errors []string
+		if host == "" || hostName == "" {
+			errors = append(errors, "Identify invalid")
+		}
+		if name == "" || passcode == "" {
+			errors = append(errors, "Room info invalid")
+		}
+
+		passcodeHashed, err := bcrypt.GenerateFromPassword([]byte(passcode), 10)
+		if err != nil {
+			errors = append(errors, "Something wrong, Please try again.")
+		}
+
+		pmrInfo := PMR{
+			Name:     name,
+			Host:     host,
+			HostName: hostName,
+		}
+
+		if len(errors) == 0 {
+			ID := getPMI(name)
+			pmrInfo.ID = ID
+			pmrInfo.Passcode = string(passcodeHashed)
+			err := createPMR(pmrInfo)
+			if err == nil {
+				data["success"] = true
+				c.Redirect(http.StatusFound, "/manager/room/pmr")
+				return
+			} else {
+				errors = append(errors, "Room already exists")
+			}
+		}
+
+		if len(errors) > 0 {
+			data["error"] = true
+			data["errorMessages"] = strings.Join(errors, ", ")
+		}
+		data["data"] = pmrInfo
+		c.HTML(http.StatusOK, "edit-pmr.html", data)
+	})
+
+	r.GET("/manager/room/edit-pmr", func(c *gin.Context) {
+		ID := c.Query("pmi")
+		if ID == "" {
+			c.Redirect(http.StatusFound, "/manager/room/pmr")
+			return
+		}
+
+		pmr, err := getPMR(ID)
+		if err != nil || pmr.ID == "" {
+			c.Redirect(http.StatusFound, "/manager/room/pmr")
+			return
+		}
+
+		data := gin.H{
+			"nav":  "pmr",
+			"data": pmr,
+			"ID":   ID,
+		}
+		act := c.Query("action")
+		if act == "delete" {
+			c.Redirect(http.StatusFound, "/manager/room/pmr")
+			return
+		}
+
+		c.HTML(http.StatusOK, "edit-pmr.html", data)
+	})
+
+	r.POST("/manager/room/edit-pmr", func(c *gin.Context) {
+		ID := c.PostForm("id")
+		oldPasscode := c.PostForm("old-passcode")
+		passcode := c.PostForm("passcode")
+
+		pmr, err := getPMR(ID)
+		if err != nil || pmr.ID == "" {
+			c.Redirect(http.StatusFound, "/manager/room/pmr")
+			return
+		}
+
+		data := gin.H{
+			"nav":  "pmr",
+			"data": pmr,
+			"ID":   ID,
+		}
+		var errors []string
+
+		err = bcrypt.CompareHashAndPassword([]byte(pmr.Passcode), []byte(oldPasscode))
+		if err != nil {
+			errors = append(errors, "Passcode invalid")
+		}
+
+		if len(errors) == 0 {
+			passcodeHashed, err := bcrypt.GenerateFromPassword([]byte(passcode), 10)
+			if err != nil {
+				errors = append(errors, "Something wrong, Please try again.")
+			} else {
+				err := updatePMR(PMR{
+					ID:       ID,
+					Passcode: string(passcodeHashed),
+				})
+				if err != nil {
+					errors = append(errors, "Update error")
+				} else {
+					data["success"] = true
+				}
+			}
+		}
+
+		if len(errors) > 0 {
+			data["error"] = true
+			data["errorMessages"] = strings.Join(errors, ", ")
+		}
+		c.HTML(http.StatusOK, "edit-pmr.html", data)
+	})
+
 	r.GET("/manager/room/kick-out-all", func(c *gin.Context) {
-		roomName := c.Query("room-name")
+		roomName := c.Query("room")
 		if roomName == "" {
 			c.Redirect(http.StatusFound, "/manager")
 			return
@@ -136,7 +293,7 @@ func main() {
 	})
 
 	r.GET("/manager/room/kick-out", func(c *gin.Context) {
-		roomName := c.Query("room-name")
+		roomName := c.Query("room")
 		if roomName == "" {
 			c.Redirect(http.StatusFound, "/manager")
 			return
@@ -155,7 +312,7 @@ func main() {
 	})
 
 	r.GET("/manager/room/toggle-mic-participant", func(c *gin.Context) {
-		roomName := c.Query("room-name")
+		roomName := c.Query("room")
 		if roomName == "" {
 			c.Redirect(http.StatusFound, "/manager")
 			return
@@ -182,7 +339,7 @@ func main() {
 	})
 
 	r.GET("/manager/room/toggle-cam-participant", func(c *gin.Context) {
-		roomName := c.Query("room-name")
+		roomName := c.Query("room")
 		if roomName == "" {
 			c.Redirect(http.StatusFound, "/manager")
 			return
@@ -204,7 +361,7 @@ func main() {
 	})
 
 	r.GET("/manager/room/turn-off-screen-sharing", func(c *gin.Context) {
-		roomName := c.Query("room-name")
+		roomName := c.Query("room")
 		if roomName == "" {
 			c.Redirect(http.StatusFound, "/manager")
 			return
@@ -364,8 +521,9 @@ func getListParticipant(roomName string, serverConfig config.LivekitServerConfig
 	listParticipant := []ParticipantRender{}
 	for _, participant := range res.Participants {
 		participantRender := ParticipantRender{
-			ID:   participant.Sid,
-			Name: participant.Name,
+			ID:       participant.Sid,
+			Identity: participant.Identity,
+			Name:     participant.Name,
 		}
 		participantRender.JoinedAt = time.Unix(int64(participant.JoinedAt), 0).Format(time.RFC3339)
 
@@ -475,4 +633,157 @@ func sendData(roomName string, data []byte, kind livekit.DataPacket_Kind, destin
 		log.Printf("send data error: %v", err)
 	}
 	return nil
+}
+
+func getPMI(content string) string {
+	content = regexp.MustCompile("(à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ)").ReplaceAllString(content, "a")
+	content = regexp.MustCompile("(À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ)").ReplaceAllString(content, "A")
+	content = regexp.MustCompile("(è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ)").ReplaceAllString(content, "e")
+	content = regexp.MustCompile("(È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ)").ReplaceAllString(content, "E")
+	content = regexp.MustCompile("(ì|í|ị|ỉ|ĩ)").ReplaceAllString(content, "i")
+	content = regexp.MustCompile("(Ì|Í|Ị|Ỉ|Ĩ)").ReplaceAllString(content, "I")
+	content = regexp.MustCompile("(ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ)").ReplaceAllString(content, "o")
+	content = regexp.MustCompile("(Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ)").ReplaceAllString(content, "O")
+	content = regexp.MustCompile("(ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ)").ReplaceAllString(content, "u")
+	content = regexp.MustCompile("(Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ)").ReplaceAllString(content, "U")
+	content = regexp.MustCompile("(ỳ|ý|ỵ|ỷ|ỹ)").ReplaceAllString(content, "y")
+	content = regexp.MustCompile("(Ỳ|Ý|Ỵ|Ỷ|Ỹ)").ReplaceAllString(content, "Y")
+	content = regexp.MustCompile("(đ)").ReplaceAllString(content, "d")
+	content = regexp.MustCompile("(Đ)").ReplaceAllString(content, "D")
+	content = regexp.MustCompile(`(\s+)`).ReplaceAllString(content, "-")
+	content = regexp.MustCompile("([^a-zA-Z0-9-])").ReplaceAllString(content, "")
+
+	return content
+}
+
+func createPMR(pmr PMR) error {
+	var ctx = context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "",
+		DB:       0,
+	})
+	key := "pmr:" + pmr.ID
+	data, err := rdb.Get(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		log.Println(err)
+		return err
+	}
+	if data == "" {
+		pmr.CreationTime = int32(time.Now().Unix())
+		pmrJson, err := json.Marshal(pmr)
+		if err != nil {
+			return err
+		}
+		err = rdb.Set(ctx, key, pmrJson, 0).Err()
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		keyInfo := "room_info:" + pmr.ID
+		err = rdb.Set(ctx, keyInfo, pmr.Passcode, 0).Err()
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+	} else {
+		return errors.New("room exist")
+	}
+	return nil
+}
+
+func updatePMR(pmr PMR) error {
+	pmrUpdate, err := getPMR(pmr.ID)
+	if err != nil || pmrUpdate.ID == "" {
+		return err
+	}
+	pmrUpdate.Passcode = pmr.Passcode
+	pmrJson, err := json.Marshal(pmrUpdate)
+	if err != nil {
+		return err
+	}
+	key := "pmr:" + pmr.ID
+	var ctx = context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "",
+		DB:       0,
+	})
+	err = rdb.Set(ctx, key, pmrJson, 0).Err()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	keyInfo := "room_info:" + pmr.ID
+	err = rdb.Set(ctx, keyInfo, pmr.Passcode, 0).Err()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
+}
+
+func getAllPMR() ([]PMR, error) {
+	var ctx = context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "",
+		DB:       0,
+	})
+	key := "pmr:*"
+
+	var keys []string
+	var cursor uint64
+	var n int
+	for {
+		var _keys []string
+		var err error
+		_keys, cursor, err = rdb.Scan(ctx, cursor, key, 10).Result()
+		if err != nil {
+			return nil, err
+		}
+		n += len(_keys)
+		keys = append(keys, _keys...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	var listPMR []PMR
+	if len(keys) > 0 {
+		for _, key := range keys {
+			key = strings.Replace(key, "pmr:", "", 1)
+			pmr, err := getPMR(key)
+			if err == nil {
+				listPMR = append(listPMR, pmr)
+			}
+		}
+	}
+	log.Printf("DEBUG: %v", listPMR)
+	return listPMR, nil
+}
+
+func getPMR(ID string) (PMR, error) {
+	var ctx = context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	var pmr PMR
+	key := "pmr:" + ID
+	data, err := rdb.Get(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		log.Println(err)
+		return pmr, err
+	}
+	if data != "" {
+		err := json.Unmarshal([]byte(data), &pmr)
+		if err != nil {
+			return pmr, err
+		}
+	}
+
+	return pmr, nil
 }
