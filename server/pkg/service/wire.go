@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/egress"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils"
@@ -28,6 +29,7 @@ import (
 
 func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*LivekitServer, error) {
 	wire.Build(
+		getNodeID,
 		createRedisClient,
 		createMessageBus,
 		createStore,
@@ -41,6 +43,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		wire.Bind(new(livekit.RoomService), new(*RoomService)),
 		telemetry.NewAnalyticsService,
 		telemetry.NewTelemetryService,
+		egress.NewRedisRPCClient,
 		NewEgressService,
 		NewRecordingService,
 		NewRoomAllocator,
@@ -61,6 +64,10 @@ func InitializeRouter(conf *config.Config, currentNode routing.LocalNode) (routi
 	)
 
 	return nil, nil
+}
+
+func getNodeID(currentNode routing.LocalNode) livekit.NodeID {
+	return livekit.NodeID(currentNode.Id)
 }
 
 func createKeyProvider(conf *config.Config) (auth.KeyProvider, error) {
@@ -109,25 +116,39 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 		return nil, nil
 	}
 
-	logger.Infow("using multi-node routing via redis", "addr", conf.Redis.Address)
-	rcOptions := &redis.Options{
-		Addr:     conf.Redis.Address,
-		Username: conf.Redis.Username,
-		Password: conf.Redis.Password,
-		DB:       conf.Redis.DB,
-	}
+	var rc *redis.Client
+	var tlsConfig *tls.Config
+
 	if conf.Redis.UseTLS {
-		rcOptions = &redis.Options{
-			Addr:     conf.Redis.Address,
-			Username: conf.Redis.Username,
-			Password: conf.Redis.Password,
-			DB:       conf.Redis.DB,
-			TLSConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
+		tlsConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
 		}
 	}
-	rc := redis.NewClient(rcOptions)
+
+	if conf.UseSentinel() {
+		logger.Infow("using multi-node routing via redis", "sentinel", true, "addr", conf.Redis.SentinelAddresses, "masterName", conf.Redis.MasterName)
+		rcOptions := &redis.FailoverOptions{
+			SentinelAddrs:    conf.Redis.SentinelAddresses,
+			SentinelUsername: conf.Redis.SentinelUsername,
+			SentinelPassword: conf.Redis.SentinelPassword,
+			MasterName:       conf.Redis.MasterName,
+			Username:         conf.Redis.Username,
+			Password:         conf.Redis.Password,
+			DB:               conf.Redis.DB,
+			TLSConfig:        tlsConfig,
+		}
+		rc = redis.NewFailoverClient(rcOptions)
+	} else {
+		logger.Infow("using multi-node routing via redis", "sentinel", false, "addr", conf.Redis.Address)
+		rcOptions := &redis.Options{
+			Addr:      conf.Redis.Address,
+			Username:  conf.Redis.Username,
+			Password:  conf.Redis.Password,
+			DB:        conf.Redis.DB,
+			TLSConfig: tlsConfig,
+		}
+		rc = redis.NewClient(rcOptions)
+	}
 
 	if err := rc.Ping(context.Background()).Err(); err != nil {
 		err = errors.Wrap(err, "unable to connect to redis")

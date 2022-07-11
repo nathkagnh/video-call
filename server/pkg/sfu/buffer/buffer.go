@@ -3,7 +3,6 @@ package buffer
 import (
 	"encoding/binary"
 	"io"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,8 @@ import (
 	"github.com/livekit/livekit-server/pkg/sfu/twcc"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+
+	dd "github.com/livekit/livekit-server/pkg/sfu/dependencydescriptor"
 )
 
 const (
@@ -31,13 +32,13 @@ type pendingPacket struct {
 }
 
 type ExtPacket struct {
-	Arrival       int64
-	Packet        *rtp.Packet
-	Payload       interface{}
-	KeyFrame      bool
-	RawPacket     []byte
-	SpatialLayer  int32
-	TemporalLayer int32
+	VideoLayer
+	Arrival              int64
+	Packet               *rtp.Packet
+	Payload              interface{}
+	KeyFrame             bool
+	RawPacket            []byte
+	DependencyDescriptor *dd.DependencyDescriptor
 }
 
 // Buffer contains all packets
@@ -72,10 +73,9 @@ type Buffer struct {
 
 	pliThrottle int64
 
-	rtpStats                    *RTPStats
-	rrSnapshotId                uint32
-	connectionQualitySnapshotId uint32
-	deltaStatsSnapshotId        uint32
+	rtpStats             *RTPStats
+	rrSnapshotId         uint32
+	deltaStatsSnapshotId uint32
 
 	lastFractionLostToReport uint8 // Last fraction lost from subscribers, should report to publisher; Audio only
 
@@ -85,6 +85,11 @@ type Buffer struct {
 
 	// logger
 	logger logger.Logger
+
+	// depencency descriptor
+	ddExt             uint8
+	ddParser          *DependencyDescriptorParser
+	maxLayerChangedCB func(int32, int32)
 }
 
 // BufferOptions provides configuration options for the buffer
@@ -142,7 +147,6 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, codec webrtc.RTPCodecCapabili
 		Logger:    b.logger,
 	})
 	b.rrSnapshotId = b.rtpStats.NewSnapshotId()
-	b.connectionQualitySnapshotId = b.rtpStats.NewSnapshotId()
 	b.deltaStatsSnapshotId = b.rtpStats.NewSnapshotId()
 
 	b.clockRate = codec.ClockRate
@@ -158,6 +162,21 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, codec webrtc.RTPCodecCapabili
 		b.bucket = NewBucket(b.videoPool.Get().(*[]byte))
 	default:
 		b.codecType = webrtc.RTPCodecType(0)
+	}
+	for _, ext := range params.HeaderExtensions {
+		switch ext.URI {
+		case dd.ExtensionUrl:
+			b.ddExt = uint8(ext.ID)
+			b.ddParser = NewDependencyDescriptorParser(b.ddExt, b.logger, func(spatial, temporal int32) {
+				if b.maxLayerChangedCB != nil {
+					b.maxLayerChangedCB(spatial, temporal)
+				}
+			})
+
+		case sdp.AudioLevelURI:
+			b.audioLevelExt = uint8(ext.ID)
+			b.audioLevel = audio.NewAudioLevel(b.audioLevelParams)
+		}
 	}
 
 	if b.codecType == webrtc.RTPCodecTypeVideo {
@@ -178,13 +197,6 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, codec webrtc.RTPCodecCapabili
 				b.logger.Debugw("Setting feedback", "type", webrtc.TypeRTCPFBNACK)
 				b.nacker = NewNACKQueue()
 				b.nacker.SetRTT(70) // default till it is updated
-			}
-		}
-	} else if b.codecType == webrtc.RTPCodecTypeAudio {
-		for _, h := range params.HeaderExtensions {
-			if h.URI == sdp.AudioLevelURI {
-				b.audioLevelExt = uint8(h.ID)
-				b.audioLevel = audio.NewAudioLevel(b.audioLevelParams)
 			}
 		}
 	}
@@ -276,7 +288,7 @@ func (b *Buffer) Close() error {
 
 		if b.rtpStats != nil {
 			b.rtpStats.Stop()
-			b.logger.Debugw("rtp stats", "stats", b.rtpStats.ToString())
+			b.logger.Infow("rtp stats", "stats", b.rtpStats.ToString())
 		}
 
 		if b.onClose != nil {
@@ -297,9 +309,9 @@ func (b *Buffer) SetPLIThrottle(duration int64) {
 	b.pliThrottle = duration
 }
 
-func (b *Buffer) SendPLI() {
+func (b *Buffer) SendPLI(force bool) {
 	b.RLock()
-	if b.rtpStats == nil || b.rtpStats.TimeSinceLastPli() < b.pliThrottle {
+	if (b.rtpStats == nil || b.rtpStats.TimeSinceLastPli() < b.pliThrottle) && !force {
 		b.RUnlock()
 		return
 	}
@@ -307,9 +319,9 @@ func (b *Buffer) SendPLI() {
 	b.rtpStats.UpdatePliAndTime(1)
 	b.RUnlock()
 
-	b.logger.Debugw("send pli", "ssrc", b.mediaSSRC)
+	b.logger.Debugw("send pli", "ssrc", b.mediaSSRC, "force", force)
 	pli := []rtcp.Packet{
-		&rtcp.PictureLossIndication{SenderSSRC: rand.Uint32(), MediaSSRC: b.mediaSSRC},
+		&rtcp.PictureLossIndication{SenderSSRC: b.mediaSSRC, MediaSSRC: b.mediaSSRC},
 	}
 
 	if b.onRtcpFeedback != nil {
@@ -423,11 +435,13 @@ func (b *Buffer) processHeaderExtensions(p *rtp.Packet, arrivalTime int64) {
 
 func (b *Buffer) getExtPacket(rawPacket []byte, rtpPacket *rtp.Packet, arrivalTime int64) *ExtPacket {
 	ep := &ExtPacket{
-		Packet:        rtpPacket,
-		Arrival:       arrivalTime,
-		RawPacket:     rawPacket,
-		SpatialLayer:  -1,
-		TemporalLayer: -1,
+		Packet:    rtpPacket,
+		Arrival:   arrivalTime,
+		RawPacket: rawPacket,
+		VideoLayer: VideoLayer{
+			Spatial:  -1,
+			Temporal: -1,
+		},
 	}
 
 	if len(rtpPacket.Payload) == 0 {
@@ -435,7 +449,15 @@ func (b *Buffer) getExtPacket(rawPacket []byte, rtpPacket *rtp.Packet, arrivalTi
 		return ep
 	}
 
-	ep.TemporalLayer = 0
+	ep.Temporal = 0
+	if b.ddParser != nil {
+		ddVal, videoLayer, err := b.ddParser.Parse(ep.Packet)
+		if err == nil && ddVal != nil {
+			ep.DependencyDescriptor = ddVal
+			ep.VideoLayer = videoLayer
+			// TODO : notify active decode target change if changed.
+		}
+	}
 	switch b.mime {
 	case "video/vp8":
 		vp8Packet := VP8{}
@@ -445,15 +467,21 @@ func (b *Buffer) getExtPacket(rawPacket []byte, rtpPacket *rtp.Packet, arrivalTi
 		}
 		ep.Payload = vp8Packet
 		ep.KeyFrame = vp8Packet.IsKeyFrame
-		ep.TemporalLayer = int32(vp8Packet.TID)
+		if ep.DependencyDescriptor == nil {
+			ep.Temporal = int32(vp8Packet.TID)
+		} else {
+			// vp8 with DependencyDescriptor enabled, use the TID from the descriptor
+			vp8Packet.TID = uint8(ep.Temporal)
+			ep.Spatial = -1 // vp8 don't have spatial scalability, reset to -1
+		}
 	case "video/h264":
 		ep.KeyFrame = IsH264Keyframe(rtpPacket.Payload)
-
 	case "video/vp9":
 		ep.KeyFrame = IsVp9Keyframe(rtpPacket.Payload)
 	case "video/av1":
 		ep.KeyFrame = IsAV1Keyframe(rtpPacket.Payload)
 	}
+
 	if ep.KeyFrame {
 		if b.rtpStats != nil {
 			b.rtpStats.UpdateKeyFrame(1)
@@ -498,8 +526,9 @@ func (b *Buffer) buildNACKPacket() ([]rtcp.Packet, int) {
 		var pkts []rtcp.Packet
 		if len(nacks) > 0 {
 			pkts = []rtcp.Packet{&rtcp.TransportLayerNack{
-				MediaSSRC: b.mediaSSRC,
-				Nacks:     nacks,
+				SenderSSRC: b.mediaSSRC,
+				MediaSSRC:  b.mediaSSRC,
+				Nacks:      nacks,
 			}}
 		}
 
@@ -528,6 +557,9 @@ func (b *Buffer) SetSenderReportData(rtpTime uint32, ntpTime uint64) {
 }
 
 func (b *Buffer) SetLastFractionLostReport(lost uint8) {
+	b.Lock()
+	defer b.Unlock()
+
 	b.lastFractionLostToReport = lost
 }
 
@@ -537,6 +569,7 @@ func (b *Buffer) getRTCP() []rtcp.Packet {
 	rr := b.buildReceptionReport()
 	if rr != nil {
 		pkts = append(pkts, &rtcp.ReceiverReport{
+			SSRC:    b.mediaSSRC,
 			Reports: []rtcp.ReceptionReport{*rr},
 		})
 	}
@@ -578,17 +611,6 @@ func (b *Buffer) GetStats() *livekit.RTPStats {
 	return b.rtpStats.ToProto()
 }
 
-func (b *Buffer) GetQualityInfo() *RTPSnapshotInfo {
-	b.RLock()
-	defer b.RUnlock()
-
-	if b.rtpStats == nil {
-		return nil
-	}
-
-	return b.rtpStats.SnapshotInfo(b.connectionQualitySnapshotId)
-}
-
 func (b *Buffer) GetDeltaStats() *StreamStatsWithLayers {
 	b.RLock()
 	defer b.RUnlock()
@@ -602,16 +624,11 @@ func (b *Buffer) GetDeltaStats() *StreamStatsWithLayers {
 		return nil
 	}
 
-	layers := make(map[int]LayerStats)
-	layers[0] = LayerStats{
-		Packets: deltaStats.Packets + deltaStats.PacketsDuplicate + deltaStats.PacketsPadding,
-		Bytes:   deltaStats.Bytes + deltaStats.BytesDuplicate + deltaStats.BytesPadding,
-		Frames:  deltaStats.Frames,
-	}
-
 	return &StreamStatsWithLayers{
 		RTPStats: deltaStats,
-		Layers:   layers,
+		Layers: map[int32]*RTPDeltaInfo{
+			0: deltaStats,
+		},
 	}
 }
 
@@ -624,4 +641,10 @@ func (b *Buffer) GetAudioLevel() (float64, bool) {
 	}
 
 	return b.audioLevel.GetLevel()
+}
+
+// TODO : now we rely on stream tracker for layer change, dependency still
+// work for that too. Do we keep it unchange or use both methods?
+func (b *Buffer) OnMaxLayerChanged(fn func(int32, int32)) {
+	b.maxLayerChangedCB = fn
 }

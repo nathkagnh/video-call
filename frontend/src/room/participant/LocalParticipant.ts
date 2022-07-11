@@ -1,6 +1,11 @@
 import log from '../../logger';
 import { RoomOptions } from '../../options';
-import { DataPacket, DataPacket_Kind, ParticipantPermission } from '../../proto/livekit_models';
+import {
+  DataPacket,
+  DataPacket_Kind,
+  ParticipantInfo,
+  ParticipantPermission,
+} from '../../proto/livekit_models';
 import {
   AddTrackRequest,
   DataChannelInfo,
@@ -787,6 +792,29 @@ export default class LocalParticipant extends Participant {
     }
   }
 
+  /** @internal */
+  updateInfo(info: ParticipantInfo) {
+    super.updateInfo(info);
+
+    // reconcile track mute status.
+    // if server's track mute status doesn't match actual, we'll have to update
+    // the server's copy
+    info.tracks.forEach((ti) => {
+      const pub = this.tracks.get(ti.sid);
+
+      if (pub) {
+        const mutedOnServer = pub.isMuted || (pub.track?.isUpstreamPaused ?? false);
+        if (mutedOnServer !== ti.muted) {
+          log.debug('updating server mute state after reconcile', {
+            sid: ti.sid,
+            muted: mutedOnServer,
+          });
+          this.engine.client.sendMuteTrack(ti.sid, mutedOnServer);
+        }
+      }
+    });
+  }
+
   private updateTrackSubscriptionPermissions = () => {
     log.debug('updating track subscription permissions', {
       allParticipantsAllowed: this.allParticipantsAllowedToSubscribe,
@@ -947,7 +975,7 @@ export default class LocalParticipant extends Participant {
     this.tracks.forEach((track: LocalTrackPublication) => {
       if (track.track !== undefined) {
         infos.push({
-          cid: track.track.mediaStreamTrack.id,
+          cid: track.track.mediaStreamID,
           track: track.trackInfo,
         });
       }

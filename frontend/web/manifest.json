@@ -8,16 +8,16 @@
     "theme_color": "#1c1f2d",
     "icons": [
       {
-        "src": "/assets/img/conference.png",
+        "src": "/assets/img/conference.5332990b99c2.png",
         "type": "image/png",
         "sizes": "512x512"
       },
       {
-        "src": "/assets/img/conference.png",
+        "src": "/assets/img/conference.5332990b99c2.png",
         "type": "image/png",
         "sizes": "512x512",
         "purpose": "maskable"
-        }
+      }
     ],
     "description": "Connect anywhere anytime",
     "lang": "en",

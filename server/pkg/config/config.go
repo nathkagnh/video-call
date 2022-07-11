@@ -51,17 +51,16 @@ type Config struct {
 }
 
 type RTCConfig struct {
-	UDPPort                    uint32           `yaml:"udp_port,omitempty"`
-	TCPPort                    uint32           `yaml:"tcp_port,omitempty"`
-	ICEPortRangeStart          uint32           `yaml:"port_range_start,omitempty"`
-	ICEPortRangeEnd            uint32           `yaml:"port_range_end,omitempty"`
-	NodeIP                     string           `yaml:"node_ip,omitempty"`
-	STUNServers                []string         `yaml:"stun_servers,omitempty"`
-	TURNServers                []TURNServer     `yaml:"turn_servers,omitempty"`
-	UseExternalIP              bool             `yaml:"use_external_ip"`
-	UseICELite                 bool             `yaml:"use_ice_lite,omitempty"`
-	Interfaces                 InterfacesConfig `yaml:"interfaces"`
-	RejectAggressiveNomination bool             `yaml:"reject_aggressive_nomination"`
+	UDPPort           uint32           `yaml:"udp_port,omitempty"`
+	TCPPort           uint32           `yaml:"tcp_port,omitempty"`
+	ICEPortRangeStart uint32           `yaml:"port_range_start,omitempty"`
+	ICEPortRangeEnd   uint32           `yaml:"port_range_end,omitempty"`
+	NodeIP            string           `yaml:"node_ip,omitempty"`
+	STUNServers       []string         `yaml:"stun_servers,omitempty"`
+	TURNServers       []TURNServer     `yaml:"turn_servers,omitempty"`
+	UseExternalIP     bool             `yaml:"use_external_ip"`
+	UseICELite        bool             `yaml:"use_ice_lite,omitempty"`
+	Interfaces        InterfacesConfig `yaml:"interfaces"`
 
 	// Number of packets to buffer for NACK
 	PacketBufferSize int `yaml:"packet_buffer_size,omitempty"`
@@ -120,11 +119,15 @@ type VideoConfig struct {
 }
 
 type RedisConfig struct {
-	Address  string `yaml:"address"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
-	UseTLS   bool   `yaml:"use_tls"`
+	Address           string   `yaml:"address"`
+	Username          string   `yaml:"username"`
+	Password          string   `yaml:"password"`
+	DB                int      `yaml:"db"`
+	UseTLS            bool     `yaml:"use_tls"`
+	MasterName        string   `yaml:"sentinel_master_name"`
+	SentinelUsername  string   `yaml:"sentinel_username"`
+	SentinelPassword  string   `yaml:"sentinel_password"`
+	SentinelAddresses []string `yaml:"sentinel_addresses"`
 }
 
 type RoomConfig struct {
@@ -148,13 +151,15 @@ type LoggingConfig struct {
 }
 
 type TURNConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	Domain      string `yaml:"domain"`
-	CertFile    string `yaml:"cert_file"`
-	KeyFile     string `yaml:"key_file"`
-	TLSPort     int    `yaml:"tls_port"`
-	UDPPort     int    `yaml:"udp_port"`
-	ExternalTLS bool   `yaml:"external_tls"`
+	Enabled             bool   `yaml:"enabled"`
+	Domain              string `yaml:"domain"`
+	CertFile            string `yaml:"cert_file"`
+	KeyFile             string `yaml:"key_file"`
+	TLSPort             int    `yaml:"tls_port"`
+	UDPPort             int    `yaml:"udp_port"`
+	RelayPortRangeStart uint16 `yaml:"relay_range_start,omitempty"`
+	RelayPortRangeEnd   uint16 `yaml:"relay_range_end,omitempty"`
+	ExternalTLS         bool   `yaml:"external_tls"`
 }
 
 type WebHookConfig struct {
@@ -190,6 +195,7 @@ func NewConfig(confString string, c *cli.Context) (*Config, error) {
 		Port: 7880,
 		RTC: RTCConfig{
 			UseExternalIP:     false,
+			UseICELite:        true,
 			TCPPort:           7881,
 			UDPPort:           0,
 			ICEPortRangeStart: 0,
@@ -272,6 +278,18 @@ func NewConfig(confString string, c *cli.Context) (*Config, error) {
 		}
 	}
 
+	// set defaults for Turn relay if none are set
+	if conf.TURN.RelayPortRangeStart == 0 || conf.TURN.RelayPortRangeEnd == 0 {
+		// to make it easier to run in dev mode/docker, default to two ports
+		if conf.Development {
+			conf.TURN.RelayPortRangeStart = 30000
+			conf.TURN.RelayPortRangeEnd = 30002
+		} else {
+			conf.TURN.RelayPortRangeStart = 30000
+			conf.TURN.RelayPortRangeEnd = 40000
+		}
+	}
+
 	if conf.RTC.NodeIP == "" {
 		conf.RTC.NodeIP, err = conf.determineIP()
 		if err != nil {
@@ -290,7 +308,11 @@ func NewConfig(confString string, c *cli.Context) (*Config, error) {
 }
 
 func (conf *Config) HasRedis() bool {
-	return conf.Redis.Address != ""
+	return conf.Redis.Address != "" || conf.Redis.SentinelAddresses != nil
+}
+
+func (conf *Config) UseSentinel() bool {
+	return conf.Redis.SentinelAddresses != nil
 }
 
 func (conf *Config) updateFromCLI(c *cli.Context) error {

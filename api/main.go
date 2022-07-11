@@ -145,6 +145,7 @@ func main() {
 						"error":   1,
 						"message": "Create room error",
 					})
+					return
 				}
 				key := "room_info:" + room
 				passcode, err := bcrypt.GenerateFromPassword([]byte(postData.Passcode), 10)
@@ -154,6 +155,7 @@ func main() {
 						"error":   1,
 						"message": "Create room error",
 					})
+					return
 				}
 				err = rdb.Set(ctx, key, string(passcode), 0).Err()
 				if err != nil {
@@ -162,6 +164,7 @@ func main() {
 						"error":   1,
 						"message": "Create room error",
 					})
+					return
 				}
 			}
 		} else {

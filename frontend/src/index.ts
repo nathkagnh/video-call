@@ -1,5 +1,5 @@
-import { setLogLevel, setLogExtension, LogLevel } from './logger';
-import { DataPacket_Kind, VideoQuality } from './proto/livekit_models';
+import { LogLevel, setLogExtension, setLogLevel } from './logger';
+import { DataPacket_Kind, VideoQuality, DisconnectReason } from './proto/livekit_models';
 import LocalParticipant from './room/participant/LocalParticipant';
 import Participant, { ConnectionQuality } from './room/participant/Participant';
 import { ParticipantTrackPermission } from './room/participant/ParticipantTrackPermission';
@@ -14,6 +14,7 @@ import RemoteTrack from './room/track/RemoteTrack';
 import RemoteTrackPublication from './room/track/RemoteTrackPublication';
 import RemoteVideoTrack, { ElementInfo } from './room/track/RemoteVideoTrack';
 import { TrackPublication } from './room/track/TrackPublication';
+import { getEmptyAudioStreamTrack, getEmptyVideoStreamTrack } from './room/utils';
 
 export * from './options';
 export * from './room/errors';
@@ -26,11 +27,14 @@ export * from './version';
 export {
   setLogLevel,
   setLogExtension,
+  getEmptyAudioStreamTrack,
+  getEmptyVideoStreamTrack,
   LogLevel,
   Room,
   ConnectionState,
   RoomState,
   DataPacket_Kind,
+  DisconnectReason,
   Participant,
   RemoteParticipant,
   LocalParticipant,

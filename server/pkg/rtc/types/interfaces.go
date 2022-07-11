@@ -28,6 +28,8 @@ type AddSubscriberParams struct {
 	TrackIDs  []livekit.TrackID
 }
 
+// ---------------------------------------------
+
 type MigrateState int32
 
 const (
@@ -49,6 +51,68 @@ func (m MigrateState) String() string {
 	}
 }
 
+// ---------------------------------------------
+
+type SubscribedCodecQuality struct {
+	CodecMime string
+	Quality   livekit.VideoQuality
+}
+
+// ---------------------------------------------
+
+type ParticipantCloseReason int
+
+const (
+	ParticipantCloseReasonClientRequestLeave ParticipantCloseReason = iota
+	ParticipantCloseReasonRoomManagerStop
+	ParticipantCloseReasonJoinFailed
+	ParticipantCloseReasonJoinTimeout
+	ParticipantCloseReasonRTCSessionFinish
+	ParticipantCloseReasonStateDisconnected
+	ParticipantCloseReasonPeerConnectionDisconnected
+	ParticipantCloseReasonDuplicateIdentity
+	ParticipantCloseReasonServiceRequestRemoveParticipant
+	ParticipantCloseReasonServiceRequestDeleteRoom
+	ParticipantCloseReasonSimulateMigration
+	ParticipantCloseReasonSimulateNodeFailure
+	ParticipantCloseReasonSimulateServerLeave
+)
+
+func (p ParticipantCloseReason) String() string {
+	switch p {
+	case ParticipantCloseReasonClientRequestLeave:
+		return "CLIENT_REQUEST_LEAVE"
+	case ParticipantCloseReasonRoomManagerStop:
+		return "ROOM_MANAGER_STOP"
+	case ParticipantCloseReasonJoinFailed:
+		return "JOIN_FAILED"
+	case ParticipantCloseReasonJoinTimeout:
+		return "JOIN_TIMEOUT"
+	case ParticipantCloseReasonRTCSessionFinish:
+		return "RTC_SESSION_FINISH"
+	case ParticipantCloseReasonStateDisconnected:
+		return "STATE_DISCONNECTED"
+	case ParticipantCloseReasonPeerConnectionDisconnected:
+		return "PEER_CONNECTION_DISCONNECTED"
+	case ParticipantCloseReasonDuplicateIdentity:
+		return "DUPLICATE_IDENTITY"
+	case ParticipantCloseReasonServiceRequestRemoveParticipant:
+		return "SERVICE_REQUEST_REMOVE_PARTICIPANT"
+	case ParticipantCloseReasonServiceRequestDeleteRoom:
+		return "SERVICE_REQUEST_DELETE_ROOM"
+	case ParticipantCloseReasonSimulateMigration:
+		return "SIMULATE_MIGRATION"
+	case ParticipantCloseReasonSimulateNodeFailure:
+		return "SIMULATE_NODE_FAILURE"
+	case ParticipantCloseReasonSimulateServerLeave:
+		return "SIMULATE_SERVER_LEAVE"
+	default:
+		return fmt.Sprintf("%d", int(p))
+	}
+}
+
+// ---------------------------------------------
+
 //counterfeiter:generate . Participant
 type Participant interface {
 	ID() livekit.ParticipantID
@@ -69,7 +133,7 @@ type Participant interface {
 	IsRecorder() bool
 
 	Start()
-	Close(sendLeave bool) error
+	Close(sendLeave bool, reason ParticipantCloseReason) error
 
 	SubscriptionPermission() *livekit.SubscriptionPermission
 
@@ -80,10 +144,15 @@ type Participant interface {
 		resolverBySid func(participantID livekit.ParticipantID) LocalParticipant,
 	) error
 	UpdateVideoLayers(updateVideoLayers *livekit.UpdateVideoLayers) error
-	UpdateSubscribedQuality(nodeID livekit.NodeID, trackID livekit.TrackID, maxQuality livekit.VideoQuality) error
+	UpdateSubscribedQuality(nodeID livekit.NodeID, trackID livekit.TrackID, maxQualities []SubscribedCodecQuality) error
 	UpdateMediaLoss(nodeID livekit.NodeID, trackID livekit.TrackID, fractionalLoss uint32) error
 
 	DebugInfo() map[string]interface{}
+}
+
+type IceConfig struct {
+	PreferSubTcp bool
+	PreferPubTcp bool
 }
 
 //counterfeiter:generate . LocalParticipant
@@ -121,8 +190,8 @@ type LocalParticipant interface {
 	SubscriberMediaEngine() *webrtc.MediaEngine
 	SubscriberPC() *webrtc.PeerConnection
 	HandleAnswer(sdp webrtc.SessionDescription) error
-	Negotiate()
-	ICERestart() error
+	Negotiate(force bool)
+	ICERestart(iceConfig *IceConfig) error
 	AddSubscribedTrack(st SubscribedTrack)
 	RemoveSubscribedTrack(st SubscribedTrack)
 	UpdateSubscribedTrackSettings(trackID livekit.TrackID, settings *livekit.UpdateTrackSettings) error
@@ -130,6 +199,8 @@ type LocalParticipant interface {
 
 	// returns list of participant identities that the current participant is subscribed to
 	GetSubscribedParticipants() []livekit.ParticipantID
+	IsSubscribedTo(sid livekit.ParticipantID) bool
+	IsPublisher() bool
 
 	GetAudioLevel() (smoothedLevel float64, active bool)
 	GetConnectionQuality() *livekit.ConnectionQualityInfo
@@ -153,6 +224,7 @@ type LocalParticipant interface {
 	// OnParticipantUpdate - metadata or permission is updated
 	OnParticipantUpdate(callback func(LocalParticipant))
 	OnDataPacket(callback func(LocalParticipant, *livekit.DataPacket))
+	OnSubscribedTo(callback func(LocalParticipant, livekit.ParticipantID))
 	OnClose(_callback func(LocalParticipant, map[livekit.TrackID]livekit.ParticipantID))
 	OnClaimsChanged(_callback func(LocalParticipant))
 
@@ -169,6 +241,7 @@ type LocalParticipant interface {
 type Room interface {
 	Name() livekit.RoomName
 	ID() livekit.RoomID
+	RemoveParticipant(identity livekit.ParticipantIdentity, reason ParticipantCloseReason)
 	UpdateSubscriptions(participant LocalParticipant, trackIDs []livekit.TrackID, participantTracks []*livekit.ParticipantTracks, subscribe bool) error
 	UpdateSubscriptionPermission(participant LocalParticipant, permissions *livekit.SubscriptionPermission) error
 	SyncState(participant LocalParticipant, state *livekit.SyncState) error
@@ -196,7 +269,6 @@ type MediaTrack interface {
 	UpdateVideoLayers(layers []*livekit.VideoLayer)
 	IsSimulcast() bool
 
-	Receiver() sfu.TrackReceiver
 	Restart()
 
 	// callbacks
@@ -213,8 +285,10 @@ type MediaTrack interface {
 	// returns quality information that's appropriate for width & height
 	GetQualityForDimension(width, height uint32) livekit.VideoQuality
 
-	NotifySubscriberNodeMaxQuality(nodeID livekit.NodeID, quality livekit.VideoQuality)
+	NotifySubscriberNodeMaxQuality(nodeID livekit.NodeID, qualites []SubscribedCodecQuality)
 	NotifySubscriberNodeMediaLoss(nodeID livekit.NodeID, fractionalLoss uint8)
+
+	Receivers() []sfu.TrackReceiver
 }
 
 //counterfeiter:generate . LocalMediaTrack
@@ -222,7 +296,7 @@ type LocalMediaTrack interface {
 	MediaTrack
 
 	SignalCid() string
-	SdpCid() string
+	HasSdpCid(cid string) bool
 
 	GetAudioLevel() (level float64, active bool)
 	GetConnectionScore() float32

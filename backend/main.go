@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"backend-meeting.fptonline.net/internal/config"
-	"backend-meeting.fptonline.net/internal/stream"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
@@ -444,7 +443,7 @@ func main() {
 				}
 
 				ws.WriteMessage(t, []byte("sending..."))
-				stream.PublishTrackToRoom(dataJson["roomName"], dataJson["rtmpLink"], serverConfig, ws, t)
+				// stream.PublishTrackToRoom(dataJson["roomName"], dataJson["rtmpLink"], serverConfig, ws, t)
 			}
 
 			ws.WriteMessage(t, []byte(responseMsg))

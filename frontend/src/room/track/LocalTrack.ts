@@ -1,9 +1,10 @@
+import Queue from 'async-await-queue';
 import log from '../../logger';
 import DeviceManager from '../DeviceManager';
 import { TrackInvalidError } from '../errors';
 import { TrackEvent } from '../events';
-import { VideoCodec } from './options';
 import { getEmptyAudioStreamTrack, getEmptyVideoStreamTrack, isMobile } from '../utils';
+import { VideoCodec } from './options';
 import { attachToElement, detachTrack, Track } from './Track';
 
 export default class LocalTrack extends Track {
@@ -21,6 +22,8 @@ export default class LocalTrack extends Track {
 
   protected providedByUser: boolean;
 
+  protected muteQueue: Queue;
+
   protected constructor(
     mediaTrack: MediaStreamTrack,
     kind: Track.Kind,
@@ -33,6 +36,7 @@ export default class LocalTrack extends Track {
     this.reacquireTrack = false;
     this.wasMuted = false;
     this.providedByUser = userProvidedTrack;
+    this.muteQueue = new Queue();
   }
 
   get id(): string {
@@ -101,7 +105,9 @@ export default class LocalTrack extends Track {
     // on Safari, the old audio track must be stopped before attempting to acquire
     // the new track, otherwise the new track will stop with
     // 'A MediaStreamTrack ended due to a capture failure`
-    this._mediaStreamTrack.stop();
+    if (!this.providedByUser) {
+      this._mediaStreamTrack.stop();
+    }
 
     track.addEventListener('ended', this.handleEnded);
     log.debug('replace MediaStreamTrack');
@@ -170,6 +176,7 @@ export default class LocalTrack extends Track {
   }
 
   protected setTrackMuted(muted: boolean) {
+    log.debug(`setting ${this.kind} track ${muted ? 'muted' : 'unmuted'}`);
     if (this.isMuted === muted) {
       return;
     }
@@ -215,31 +222,36 @@ export default class LocalTrack extends Track {
   };
 
   async pauseUpstream() {
-    if (this._isUpstreamPaused === true) {
-      return;
-    }
-    if (!this.sender) {
-      log.warn('unable to pause upstream for an unpublished track');
-      return;
-    }
-    this._isUpstreamPaused = true;
-    this.emit(TrackEvent.UpstreamPaused, this);
-    const emptyTrack =
-      this.kind === Track.Kind.Audio ? getEmptyAudioStreamTrack() : getEmptyVideoStreamTrack();
-    await this.sender.replaceTrack(emptyTrack);
+    this.muteQueue.run(async () => {
+      if (this._isUpstreamPaused === true) {
+        return;
+      }
+      if (!this.sender) {
+        log.warn('unable to pause upstream for an unpublished track');
+        return;
+      }
+
+      this._isUpstreamPaused = true;
+      this.emit(TrackEvent.UpstreamPaused, this);
+      const emptyTrack =
+        this.kind === Track.Kind.Audio ? getEmptyAudioStreamTrack() : getEmptyVideoStreamTrack();
+      await this.sender.replaceTrack(emptyTrack);
+    });
   }
 
   async resumeUpstream() {
-    if (this._isUpstreamPaused === false) {
-      return;
-    }
-    if (!this.sender) {
-      log.warn('unable to resume upstream for an unpublished track');
-      return;
-    }
-    this._isUpstreamPaused = false;
-    this.emit(TrackEvent.UpstreamResumed, this);
+    this.muteQueue.run(async () => {
+      if (this._isUpstreamPaused === false) {
+        return;
+      }
+      if (!this.sender) {
+        log.warn('unable to resume upstream for an unpublished track');
+        return;
+      }
+      this._isUpstreamPaused = false;
+      this.emit(TrackEvent.UpstreamResumed, this);
 
-    await this.sender.replaceTrack(this._mediaStreamTrack);
+      await this.sender.replaceTrack(this._mediaStreamTrack);
+    });
   }
 }

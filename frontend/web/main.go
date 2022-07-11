@@ -4,22 +4,32 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"html/template"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+
+	// "regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/catcombo/go-staticfiles"
 	"github.com/disintegration/imaging"
+
+	// "github.com/gin-contrib/sessions"
+	// "github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/goccy/go-json"
 	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/skip2/go-qrcode"
+	// "gopkg.in/ldap.v2"
 )
 
 type LivekitServerConfig struct {
@@ -42,6 +52,15 @@ type PMR struct {
 	CreationTime int32  `json:"creation_time"`
 }
 
+type Login struct {
+	User     string `json:"user" form:"user"`
+	Password string `json:"password" form:"password"`
+}
+
+// var Secret = []byte("secret")
+
+// const Userkey = "user"
+
 func main() {
 	serverConfig := LivekitServerConfig{
 		Host:      "http://127.0.0.1:7880",
@@ -51,25 +70,114 @@ func main() {
 
 	r := gin.Default()
 
-	r.Static("/assets", "./assets")
+	r.Static("/assets", "./staticfiles")
 	r.StaticFile("/favicon.ico", "./favicon.ico")
 	r.StaticFile("/manifest.json", "./manifest.json")
 	r.StaticFile("/sw.js", "./sw.js")
 
+	storage, err := staticfiles.NewStorage("staticfiles")
+	if err != nil {
+		log.Fatal(err)
+	}
+	storage.AddInputDir("assets")
+	storage.RegisterRule(postProcessCSS)
+	err = storage.CollectStatic()
+	if err != nil {
+		log.Fatal(err)
+	}
+	r.SetFuncMap(template.FuncMap{
+		"static": func(relPath string) string {
+			return "assets/" + storage.Resolve(relPath)
+		},
+	})
 	r.LoadHTMLGlob("templates/*")
 
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", gin.H{
-			"verStatic": time.Now().Unix(),
-		})
-	})
+	// r.Use(sessions.Sessions("session", cookie.NewStore(Secret)))
 
-	r.GET("/:room", func(c *gin.Context) {
+	// r.GET("/login", func(c *gin.Context) {
+	// 	redirectUrl := c.DefaultQuery("redirect", "/")
+	// 	session := sessions.Default(c)
+	// 	user := session.Get(Userkey)
+	// 	if user != nil {
+	// 		c.Redirect(http.StatusMovedPermanently, redirectUrl)
+	// 		return
+	// 	}
+
+	// 	c.HTML(http.StatusOK, "login.html", gin.H{})
+	// })
+
+	// r.POST("/login", func(c *gin.Context) {
+	// 	redirectUrl := c.DefaultQuery("redirect", "/")
+	// 	session := sessions.Default(c)
+	// 	user := session.Get(Userkey)
+	// 	if user != nil {
+	// 		c.Redirect(http.StatusMovedPermanently, redirectUrl)
+	// 		return
+	// 	}
+
+	// 	var loginInfo Login
+	// 	if c.ShouldBind(&loginInfo) != nil && loginInfo.User != "" && loginInfo.Password != "" {
+	// 		c.HTML(http.StatusOK, "login.html", gin.H{
+	// 			"error":     "Incorrect username or password",
+	// 		})
+	// 		return
+	// 	}
+
+	// 	loginInfo.User = regexp.MustCompile(`(@.*)$`).ReplaceAllString(loginInfo.User, "")
+
+	// 	log.Printf("DEBUG: %v", loginInfo)
+	// 	if err := checkUserPass(loginInfo); err != nil {
+	// 		c.HTML(http.StatusOK, "login.html", gin.H{
+	// 			"user":      loginInfo.User,
+	// 			"password":  loginInfo.Password,
+	// 			"error":     "Incorrect username or password",
+	// 		})
+	// 		return
+	// 	}
+
+	// 	session.Set(Userkey, loginInfo.User)
+	// 	if err := session.Save(); err != nil {
+	// 		c.HTML(http.StatusOK, "login.html", gin.H{
+	// 			"user":      loginInfo.User,
+	// 			"password":  loginInfo.Password,
+	// 			"error":     "Failed to save session",
+	// 		})
+	// 		return
+	// 	}
+
+	// 	c.Redirect(http.StatusMovedPermanently, redirectUrl)
+	// })
+
+	// r.GET("/logout", func(c *gin.Context) {
+	// 	redirectUrl := c.DefaultQuery("redirect", "/")
+	// 	session := sessions.Default(c)
+	// 	user := session.Get(Userkey)
+	// 	if user != nil {
+	// 		session.Delete(Userkey)
+	// 		_ = session.Save()
+	// 	}
+	// 	c.Redirect(http.StatusMovedPermanently, "/login?redirect="+redirectUrl)
+	// })
+
+	// memoryStore := persist.NewMemoryStore(1 * time.Minute)
+
+	r.GET("/",
+		// cache.CacheByRequestURI(memoryStore, 2*time.Minute),
+		common(),
+		func(c *gin.Context) {
+			sounds := c.MustGet("sounds").(map[string]string)
+			c.HTML(http.StatusOK, "index.html", gin.H{
+				"sounds": sounds,
+			})
+		})
+
+	r.GET("/:room", common(), func(c *gin.Context) {
 		room := c.Param("room")
+		sounds := c.MustGet("sounds").(map[string]string)
 		data := gin.H{
+			"sounds":           sounds,
 			"creationTime":     0,
 			"requiredPasscode": false,
-			"verStatic":        time.Now().Unix(),
 		}
 		if room != "" {
 			data["ended"] = true
@@ -102,11 +210,11 @@ func main() {
 							}
 
 							data = gin.H{
+								"sounds":           sounds,
 								"creationTime":     res.Rooms[0].CreationTime,
 								"room":             room,
 								"roomName":         roomName,
 								"requiredPasscode": passcode != "",
-								"verStatic":        time.Now().Unix(),
 							}
 						}
 					}
@@ -126,10 +234,10 @@ func main() {
 							})
 							if err == nil {
 								data = gin.H{
+									"sounds":           sounds,
 									"room":             pmr.ID,
 									"roomName":         pmr.Name,
 									"requiredPasscode": true,
-									"verStatic":        time.Now().Unix(),
 								}
 							}
 						}
@@ -153,16 +261,20 @@ func main() {
 		resizePath := srcPath[0:len(srcPath)-len(extension)] + "_200x200" + extension
 		log.Printf("%s - %s", srcPath, resizePath)
 		var fileAvatar string
-		if _, err := os.Stat(srcPath); err == nil {
-			err := resize(srcPath, 200, 200, resizePath)
-			if err == nil {
-				fileAvatar = resizePath
-				log.Printf("resize %s", resizePath)
+		if _, err := os.Stat(resizePath); err != nil {
+			if _, err := os.Stat(srcPath); err == nil {
+				err := resize(srcPath, 200, 200, resizePath)
+				if err == nil {
+					fileAvatar = resizePath
+					log.Printf("resize %s", resizePath)
+				} else {
+					log.Printf("failed to save image: %v", err)
+				}
 			} else {
-				log.Printf("failed to save image: %v", err)
+				log.Printf("not found: %v", err)
 			}
 		} else {
-			log.Printf("not found: %v", err)
+			fileAvatar = resizePath
 		}
 
 		if fileAvatar != "" {
@@ -178,6 +290,7 @@ func main() {
 			buffer := bufio.NewReader(file)
 			buffer.Read(bytes)
 
+			c.Writer.Header().Set("Cache-Control", "private, max-age=604800, immutable")
 			c.Set("image-byte", bytes)
 			c.Data(http.StatusOK, http.DetectContentType(bytes), bytes)
 		} else {
@@ -286,6 +399,54 @@ func main() {
 	r.Run(":8080")
 }
 
+// func checkLogin() gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		session := sessions.Default(c)
+// 		user := session.Get(Userkey)
+// 		if user == nil {
+// 			redirectUrl := c.FullPath()
+// 			c.Redirect(http.StatusMovedPermanently, "/login?redirect="+redirectUrl)
+// 			c.Abort()
+// 			return
+// 		}
+// 	}
+// }
+
+// func checkUserPass(loginInfo Login) error {
+// 	l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "180.148.136.1", 389))
+// 	if err != nil {
+// 		log.Println(err)
+// 		return err
+// 	}
+// 	defer l.Close()
+// 	l.Debug = true
+// 	err = l.Bind(loginInfo.User+"@fo", loginInfo.Password)
+// 	if err != nil {
+// 		log.Println(err)
+// 		return err
+// 	}
+
+// 	return nil
+// }
+
+func common() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		files, err := ioutil.ReadDir("./assets/sounds")
+		if err == nil {
+			sounds := map[string]string{}
+			for _, f := range files {
+				fileName := regexp.MustCompile(`\..*?$`).ReplaceAllString(f.Name(), "")
+				filePath := "sounds/" + fileName + ".wav"
+				sounds[fileName] = filePath
+			}
+
+			c.Set("sounds", sounds)
+		} else {
+			log.Println(err)
+		}
+	}
+}
+
 func resize(src string, w int, h int, savePath string) error {
 	srcImage, err := imaging.Open(src)
 	if err != nil {
@@ -336,4 +497,76 @@ func getPMR(ID string) (PMR, error) {
 	}
 
 	return pmr, nil
+}
+
+func postProcessCSS(storage *staticfiles.Storage, file *staticfiles.StaticFile) error {
+	if filepath.Ext(file.Path) != ".css" {
+		return nil
+	}
+
+	buf, err := ioutil.ReadFile(file.Path)
+	if err != nil {
+		return err
+	}
+
+	content := string(buf)
+	changed := false
+
+	var (
+		ignoreRegex = regexp.MustCompile(`^\w+:`)
+		urlPatterns = []*regexp.Regexp{
+			regexp.MustCompile(`url\(['"]?(?P<url>.*?)['"]?\)`),
+			regexp.MustCompile(`@import\s*['"](?P<url>.*?)['"]`),
+			regexp.MustCompile(`sourceMappingURL=(?P<url>[-\\.\w]+)`),
+		}
+	)
+
+	for _, regex := range urlPatterns {
+		content = regex.ReplaceAllStringFunc(content, func(s string) string {
+			url := findSubmatchGroup(regex, s, "url")
+			urlOrigin := url
+			url = regexp.MustCompile(`\?.*?$`).ReplaceAllString(url, "")
+
+			// Skip data URI schemes and absolute urls
+			if ignoreRegex.MatchString(url) {
+				return s
+			}
+
+			urlFileName := filepath.Base(urlOrigin)
+			urlFilePath := filepath.ToSlash(filepath.Join(filepath.Dir(file.Path), url))
+			for _, file := range storage.FilesMap {
+				if file.Path == urlFilePath {
+					hashedName := filepath.Base(file.StoragePath)
+					s = strings.Replace(s, urlFileName, hashedName, 1)
+					changed = true
+					break
+				}
+			}
+
+			return s
+		})
+	}
+
+	if changed {
+		err = ioutil.WriteFile(file.StoragePath, []byte(content), 0)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func findSubmatchGroup(regex *regexp.Regexp, s, groupName string) string {
+	matches := regex.FindStringSubmatch(s)
+
+	if matches != nil {
+		for i, name := range regex.SubexpNames() {
+			if name == groupName {
+				return matches[i]
+			}
+		}
+	}
+
+	return ""
 }

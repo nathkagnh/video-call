@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
+
+	"github.com/livekit/livekit-server/pkg/utils"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 )
@@ -16,45 +19,52 @@ var (
 var (
 	ConfigVideo = []StreamTrackerParams{
 		{
-			SamplesRequired: 1,
-			CyclesRequired:  4,
-			CycleDuration:   500 * time.Millisecond,
+			SamplesRequired:       1,
+			CyclesRequired:        4,
+			CycleDuration:         500 * time.Millisecond,
+			BitrateReportInterval: 1 * time.Second,
 		},
 		{
-			SamplesRequired: 5,
-			CyclesRequired:  60,
-			CycleDuration:   500 * time.Millisecond,
+			SamplesRequired:       5,
+			CyclesRequired:        20,
+			CycleDuration:         500 * time.Millisecond,
+			BitrateReportInterval: 1 * time.Second,
 		},
 		{
-			SamplesRequired: 5,
-			CyclesRequired:  60,
-			CycleDuration:   500 * time.Millisecond,
+			SamplesRequired:       5,
+			CyclesRequired:        20,
+			CycleDuration:         500 * time.Millisecond,
+			BitrateReportInterval: 1 * time.Second,
 		},
 	}
 
 	// be very forgiving for screen share to account for cases like static screen where there could be only one packet per second
 	ConfigScreenshare = []StreamTrackerParams{
 		{
-			SamplesRequired: 1,
-			CyclesRequired:  1,
-			CycleDuration:   2 * time.Second,
+			SamplesRequired:       1,
+			CyclesRequired:        1,
+			CycleDuration:         2 * time.Second,
+			BitrateReportInterval: 4 * time.Second,
 		},
 		{
-			SamplesRequired: 1,
-			CyclesRequired:  1,
-			CycleDuration:   2 * time.Second,
+			SamplesRequired:       1,
+			CyclesRequired:        1,
+			CycleDuration:         2 * time.Second,
+			BitrateReportInterval: 4 * time.Second,
 		},
 		{
-			SamplesRequired: 1,
-			CyclesRequired:  1,
-			CycleDuration:   2 * time.Second,
+			SamplesRequired:       1,
+			CyclesRequired:        1,
+			CycleDuration:         2 * time.Second,
+			BitrateReportInterval: 4 * time.Second,
 		},
 	}
 )
 
 type StreamTrackerManager struct {
-	logger logger.Logger
-	source livekit.TrackSource
+	logger            logger.Logger
+	trackInfo         *livekit.TrackInfo
+	maxPublishedLayer int32
 
 	lock sync.RWMutex
 
@@ -65,14 +75,25 @@ type StreamTrackerManager struct {
 
 	onAvailableLayersChanged     func(availableLayers []int32)
 	onBitrateAvailabilityChanged func()
+	onMaxLayerChanged            func(maxLayer int32)
 }
 
-func NewStreamTrackerManager(logger logger.Logger, source livekit.TrackSource) *StreamTrackerManager {
-	return &StreamTrackerManager{
-		logger:           logger,
-		source:           source,
-		maxExpectedLayer: DefaultMaxLayerSpatial,
+func NewStreamTrackerManager(logger logger.Logger, trackInfo *livekit.TrackInfo) *StreamTrackerManager {
+	s := &StreamTrackerManager{
+		logger:            logger,
+		trackInfo:         trackInfo,
+		maxPublishedLayer: 0,
 	}
+
+	for _, layer := range s.trackInfo.Layers {
+		spatialLayer := utils.SpatialLayerForQuality(layer.Quality)
+		if spatialLayer > s.maxPublishedLayer {
+			s.maxPublishedLayer = spatialLayer
+		}
+	}
+	s.maxExpectedLayer = s.maxPublishedLayer
+
+	return s
 }
 
 func (s *StreamTrackerManager) OnAvailableLayersChanged(f func(availableLayers []int32)) {
@@ -83,24 +104,30 @@ func (s *StreamTrackerManager) OnBitrateAvailabilityChanged(f func()) {
 	s.onBitrateAvailabilityChanged = f
 }
 
-func (s *StreamTrackerManager) AddTracker(layer int32) {
+func (s *StreamTrackerManager) OnMaxLayerChanged(f func(maxLayer int32)) {
+	s.onMaxLayerChanged = f
+}
+
+func (s *StreamTrackerManager) AddTracker(layer int32) *StreamTracker {
 	var params StreamTrackerParams
-	if s.source == livekit.TrackSource_SCREEN_SHARE {
+	if s.trackInfo.Source == livekit.TrackSource_SCREEN_SHARE {
 		if int(layer) >= len(ConfigScreenshare) {
-			return
+			return nil
 		}
 
 		params = ConfigScreenshare[layer]
 	} else {
 		if int(layer) >= len(ConfigVideo) {
-			return
+			return nil
 		}
 
 		params = ConfigVideo[layer]
 	}
-	params.Logger = s.logger
+	params.Logger = logger.Logger(logr.Logger(s.logger).WithValues("layer", layer))
 	tracker := NewStreamTracker(params)
+	s.logger.Debugw("StreamTrackerManager add track", "layer", layer)
 	tracker.OnStatusChanged(func(status StreamStatus) {
+		s.logger.Debugw("StreamTrackerManager.OnStatusChanged", "layer", layer, "status", status)
 		if status == StreamStatusStopped {
 			exempt := false
 			for _, l := range exemptLayers {
@@ -109,7 +136,12 @@ func (s *StreamTrackerManager) AddTracker(layer int32) {
 					break
 				}
 			}
-			if !exempt || layer > s.maxExpectedLayer {
+
+			s.lock.RLock()
+			maxExpectedLayer := s.maxExpectedLayer
+			s.lock.RUnlock()
+
+			if !exempt || layer > maxExpectedLayer {
 				s.removeAvailableLayer(layer)
 			} else {
 				s.logger.Debugw("not removing exempt layer", "layer", layer)
@@ -129,6 +161,7 @@ func (s *StreamTrackerManager) AddTracker(layer int32) {
 	s.lock.Unlock()
 
 	tracker.Start()
+	return tracker
 }
 
 func (s *StreamTrackerManager) RemoveTracker(layer int32) {
@@ -223,6 +256,43 @@ func (s *StreamTrackerManager) IsReducedQuality() bool {
 	return int32(len(s.availableLayers)) < (s.maxExpectedLayer + 1)
 }
 
+func (s *StreamTrackerManager) GetLayerDimension(layer int32) (uint32, uint32) {
+	height := uint32(0)
+	width := uint32(0)
+	if len(s.trackInfo.Layers) > 0 {
+		quality := utils.QualityForSpatialLayer(layer)
+		for _, layer := range s.trackInfo.Layers {
+			if layer.Quality == quality {
+				height = layer.Height
+				width = layer.Width
+				break
+			}
+		}
+	} else {
+		width = s.trackInfo.Width
+		height = s.trackInfo.Height
+	}
+	return width, height
+}
+
+func (s *StreamTrackerManager) GetMaxExpectedLayer() (layer int32, width uint32, height uint32) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	// find min of <expected, published> layer
+	maxExpectedLayer := s.maxExpectedLayer
+	if maxExpectedLayer > s.maxPublishedLayer {
+		maxExpectedLayer = s.maxPublishedLayer
+	}
+	for _, layer := range s.trackInfo.Layers {
+		if maxExpectedLayer == utils.SpatialLayerForQuality(layer.Quality) {
+			return maxExpectedLayer, layer.Width, layer.Height
+		}
+	}
+
+	return maxExpectedLayer, 0, 0
+}
+
 func (s *StreamTrackerManager) GetBitrateTemporalCumulative() Bitrates {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -286,18 +356,30 @@ func (s *StreamTrackerManager) addAvailableLayer(layer int32) {
 
 	s.availableLayers = append(s.availableLayers, layer)
 	sort.Slice(s.availableLayers, func(i, j int) bool { return s.availableLayers[i] < s.availableLayers[j] })
-	layers := s.availableLayers
+
+	var layers []int32
+	layers = append(layers, s.availableLayers...)
 	s.lock.Unlock()
 
-	s.logger.Debugw("available layers changed - layer seen", "layers", layers)
+	s.logger.Debugw("available layers changed - layer seen", "added", layer, "layers", layers)
 
 	if s.onAvailableLayersChanged != nil {
 		s.onAvailableLayersChanged(layers)
+	}
+
+	// check if new layer was the max layer
+	if layers[len(layers)-1] == layer && s.onMaxLayerChanged != nil {
+		s.onMaxLayerChanged(layer)
 	}
 }
 
 func (s *StreamTrackerManager) removeAvailableLayer(layer int32) {
 	s.lock.Lock()
+	prevMaxLayer := InvalidLayerSpatial
+	if len(s.availableLayers) > 0 {
+		prevMaxLayer = s.availableLayers[len(s.availableLayers)-1]
+	}
+
 	newLayers := make([]int32, 0, DefaultMaxLayerSpatial+1)
 	for _, l := range s.availableLayers {
 		if l != layer {
@@ -306,12 +388,22 @@ func (s *StreamTrackerManager) removeAvailableLayer(layer int32) {
 	}
 	sort.Slice(newLayers, func(i, j int) bool { return newLayers[i] < newLayers[j] })
 	s.availableLayers = newLayers
+
+	curMaxLayer := InvalidLayerSpatial
+	if len(s.availableLayers) > 0 {
+		curMaxLayer = s.availableLayers[len(s.availableLayers)-1]
+	}
 	s.lock.Unlock()
 
-	s.logger.Debugw("available layers changed - layer gone", "layers", newLayers)
+	s.logger.Debugw("available layers changed - layer gone", "removed", layer, "layers", newLayers)
 
 	// need to immediately switch off unavailable layers
 	if s.onAvailableLayersChanged != nil {
 		s.onAvailableLayersChanged(newLayers)
+	}
+
+	// if maxLayer was removed, send the new maxLayer
+	if curMaxLayer != prevMaxLayer && s.onMaxLayerChanged != nil {
+		s.onMaxLayerChanged(curMaxLayer)
 	}
 }

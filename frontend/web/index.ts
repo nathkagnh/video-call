@@ -2,6 +2,7 @@ import {
   ConnectionQuality,
   ConnectionState,
   DataPacket_Kind,
+  DisconnectReason,
   LocalParticipant,
   LogLevel,
   MediaDeviceFailure,
@@ -20,12 +21,13 @@ import {
   VideoCaptureOptions,
   VideoCodec,
   VideoPresets,
-  VideoQuality
-} from '../src/index'
+  VideoQuality,
+} from '../src/index';
 import Dropzone from 'dropzone';
 import Swal from 'sweetalert2';
 import SimpleBar from 'simplebar';
 import { Buffer } from 'buffer';
+import fscreen from 'fscreen';
 
 const $ = (id: string) => document.getElementById(id);
 const API_URL = "https://meeting.fptonline.net";
@@ -34,12 +36,12 @@ const isMobile = /Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Acc
 let readyRecieveNotify = false;
 
 // register service worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-      navigator.serviceWorker.register('/sw.js').then(function(registration) {
-          // console.log('ServiceWorker registration successful with scope: ', registration.scope);
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function() {
+      navigator.serviceWorker.register("/sw.js").then(function(registration) {
+          // console.log("ServiceWorker registration successful with scope: ", registration.scope);
       }, function(err) {
-          // console.log('ServiceWorker registration failed: ', err);
+          // console.log("ServiceWorker registration failed: ", err);
       });
   });       
 }
@@ -454,17 +456,7 @@ const appActions = {
         room.engine.connectedServerAddress,
       );
 
-      // remove join page
-      (<HTMLDivElement>$("joinPage")).remove();
-      let roomPartition = document.querySelectorAll(".room-partition");
-      if (roomPartition.length > 0) {
-        roomPartition.forEach((el) => {
-          (<HTMLDivElement>el).classList.remove("hide")
-        });
-      }
-      setTimeout(() => {
-        readyRecieveNotify = true;
-      }, 2000);
+      initRoom();
     } catch (error: any) {
       let message: any = error;
       if (error.message) {
@@ -628,26 +620,13 @@ const appActions = {
     if (state.bitrateInterval) {
       clearInterval(state.bitrateInterval);
     }
-    window.location.reload();
   },
 
   handleScenario: (e: Event) => {
     const scenario = (<HTMLSelectElement>e.target).value;
     if (scenario !== '') {
-      if (scenario === 'signal-reconnect') {
-        appActions.disconnectSignal();
-      } else {
-        currentRoom?.simulateScenario(scenario);
-      }
+      currentRoom?.simulateScenario(scenario);
       (<HTMLSelectElement>e.target).value = '';
-    }
-  },
-
-  disconnectSignal: () => {
-    if (!currentRoom) return;
-    currentRoom.engine.client.close();
-    if (currentRoom.engine.client.onClose) {
-      currentRoom.engine.client.onClose('manual disconnect');
     }
   },
 
@@ -781,40 +760,14 @@ const appActions = {
   },
 
   toggleFullscreen: () => {
-    const btnFullscreen = <HTMLAnchorElement>$("btnFullscreen");
-    if (btnFullscreen.innerHTML == '<i class="icon-Maximize"></i>') {
-      btnFullscreen.innerHTML = '<i class="icon-Minimize"></i>';
-
-      const docElmWithBrowsersFullScreenFunctions = document.documentElement as HTMLElement & {
-        mozRequestFullScreen(): Promise<void>;
-        webkitRequestFullscreen(): Promise<void>;
-        msRequestFullscreen(): Promise<void>;
-      };
-      if (docElmWithBrowsersFullScreenFunctions.requestFullscreen) {
-        docElmWithBrowsersFullScreenFunctions.requestFullscreen();
-      } else if (docElmWithBrowsersFullScreenFunctions.mozRequestFullScreen) { /* Firefox */
-        docElmWithBrowsersFullScreenFunctions.mozRequestFullScreen();
-      } else if (docElmWithBrowsersFullScreenFunctions.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
-        docElmWithBrowsersFullScreenFunctions.webkitRequestFullscreen();
-      } else if (docElmWithBrowsersFullScreenFunctions.msRequestFullscreen) { /* IE/Edge */
-        docElmWithBrowsersFullScreenFunctions.msRequestFullscreen();
-      }
-    } else {
-      btnFullscreen.innerHTML = '<i class="icon-Maximize"></i>';
-
-      const docWithBrowsersExitFunctions = document as Document & {
-        mozCancelFullScreen(): Promise<void>;
-        webkitExitFullscreen(): Promise<void>;
-        msExitFullscreen(): Promise<void>;
-      };
-      if (docWithBrowsersExitFunctions.exitFullscreen) {
-        docWithBrowsersExitFunctions.exitFullscreen();
-      } else if (docWithBrowsersExitFunctions.mozCancelFullScreen) { /* Firefox */
-        docWithBrowsersExitFunctions.mozCancelFullScreen();
-      } else if (docWithBrowsersExitFunctions.webkitExitFullscreen) { /* Chrome, Safari and Opera */
-        docWithBrowsersExitFunctions.webkitExitFullscreen();
-      } else if (docWithBrowsersExitFunctions.msExitFullscreen) { /* IE/Edge */
-        docWithBrowsersExitFunctions.msExitFullscreen();
+    if (fscreen.fullscreenEnabled) {
+      const btnFullscreen = <HTMLAnchorElement>$("btnFullscreen");
+      if (fscreen.fullscreenElement !== null) {
+        btnFullscreen.innerHTML = '<i class="icon-Maximize"></i>';
+        fscreen.exitFullscreen();
+      } else {
+        btnFullscreen.innerHTML = '<i class="icon-Minimize"></i>';
+        fscreen.requestFullscreen(document.documentElement);
       }
     }
   },
@@ -857,17 +810,44 @@ declare global {
 
 window.appActions = appActions;
 
+declare const SOUNDS: any;
+
 // --------------------------- event handlers ------------------------------- //
+
+function initRoom() {
+  // remove join page
+  (<HTMLDivElement>$("joinPage")).remove();
+  let roomPartition = document.querySelectorAll(".room-partition");
+  if (roomPartition.length > 0) {
+    roomPartition.forEach((el) => {
+      (<HTMLDivElement>el).classList.remove("hide")
+    });
+  }
+  setTimeout(() => {
+    readyRecieveNotify = true;
+  }, 2000);
+
+  // fullscreen
+  fscreen.addEventListener('fullscreenchange', () => {
+    const btnFullscreen = <HTMLAnchorElement>$("btnFullscreen");
+    if (fscreen.fullscreenElement !== null) {
+      btnFullscreen.innerHTML = '<i class="icon-Minimize"></i>';
+    } else {
+      btnFullscreen.innerHTML = '<i class="icon-Maximize"></i>';
+    }
+  }, false);
+  document.addEventListener('keydown', (event: any) => {
+    if (event.which === 122 || event.key === "F11") {
+      event.preventDefault();
+      appActions.toggleFullscreen();
+    }
+  });
+}
 
 function notify(message: string, type: string | undefined = undefined) {
   if (!readyRecieveNotify) return;
 
-  let audioFile = "/assets/sounds/";
-  if (type) {
-    audioFile += `${type}.wav`;
-  } else {
-    audioFile += "notify.wav";
-  }
+  let audioFile = type ? SOUNDS[type] : SOUNDS["notify"];
   let sound = new Audio(audioFile);
   sound.volume = 0.2;
   sound.play();
@@ -901,7 +881,7 @@ function handleLayoutItems() {
 
 function raiseHand(participant: Participant, isLower: boolean | undefined = undefined) {
   if (!isLower) {
-    let sound = new Audio("/assets/sounds/notify.wav");
+    let sound = new Audio(SOUNDS["notify"]);
     sound.volume = 0.2;
     sound.play();
 
@@ -1041,9 +1021,9 @@ function participantDisconnected(participant: RemoteParticipant) {
   }
 }
 
-function handleRoomDisconnect() {
+function handleRoomDisconnect(reason?: DisconnectReason) {
   if (!currentRoom) return;
-  appendLog('disconnected from room');
+  appendLog('disconnected from room', {reason});
   setButtonsForState(false);
   renderParticipant(currentRoom.localParticipant, true);
   currentRoom.participants.forEach((p) => {
@@ -1321,11 +1301,7 @@ function renderScreenShare(room: Room) {
 
         handleLayouts();
 
-        const videoElm = $(`screenshare-video-${screenShareInfo.participant.identity}`) as HTMLVideoElement & {
-          mozRequestFullScreen(): Promise<void>;
-          webkitRequestFullscreen(): Promise<void>;
-          msRequestFullscreen(): Promise<void>;
-        };
+        const videoElm = $(`screenshare-video-${screenShareInfo.participant.identity}`) as HTMLVideoElement;
         screenShareInfo.track.videoTrack?.attach(videoElm);
         if (screenShareAudioPubLocal) {
           screenShareAudioPubLocal.audioTrack?.attach(videoElm);
@@ -1341,15 +1317,7 @@ function renderScreenShare(room: Room) {
         if (!isMobile) {
           const fullScreenBtn = <HTMLAnchorElement>$(`screenshare-fullscreen-${screenShareInfo.participant.identity}`);
           fullScreenBtn.addEventListener("click", () => {
-            if (videoElm.requestFullscreen) {
-              videoElm.requestFullscreen();
-            } else if (videoElm.mozRequestFullScreen) { /* Firefox */
-              videoElm.mozRequestFullScreen();
-            } else if (videoElm.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
-              videoElm.webkitRequestFullscreen();
-            } else if (videoElm.msRequestFullscreen) { /* IE/Edge */
-              videoElm.msRequestFullscreen();
-            }
+            fscreen.requestFullscreen(videoElm);
           });
         }
       }

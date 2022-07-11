@@ -24,11 +24,21 @@
         <meta name="description" content="FO meeting.">
         <meta name="theme-color" content="#1c1f2d">
         <link rel="manifest" href="/manifest.json">
-        <link rel="apple-touch-icon" href="/assets/img/conference.png">
-        <link rel="stylesheet" href="/assets/css/sweetalert2.min.css" id="theme-styles">
-        <link rel="stylesheet" href="/assets/css/simplebar.css" />
-        <link rel="stylesheet" type="text/css" href="/assets/css/style.css?v={{.verStatic}}" />
+        <link rel="icon" href="favicon.ico?dsadsad">
+        {{range .sounds}}
+        <link rel="prefetch" href="{{static .}}">
+        {{end}}
+        <link rel="dns-prefetch" href="//fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
+        <link rel="apple-touch-icon" href="{{static "img/conference.png"}}">
+        <link rel="stylesheet" href="{{static "css/sweetalert2.min.css"}}" id="theme-styles">
+        <link rel="stylesheet" href="{{static "css/simplebar.css"}}" />
+        <link rel="stylesheet" type="text/css" href="{{static "css/style.css"}}" />
         <style>
+            body {
+                width: 100%;
+                height: 100%;
+            }
             audio {
                 display: none;
             }
@@ -149,6 +159,14 @@
                 }
             }
 
+            .page-video-call.list-frame .wrap-video .box-video__outer .user-share-tooltip {
+                top: 5px;
+            }
+            .page-video-call.list-frame .wrap-video .box-video__outer .ic-maximize {
+                position: absolute;
+                right: 5px;
+                top: 5px;
+            }
             .box-video__outer:hover .ic-maximize {
                 opacity: 1 !important;
             }
@@ -171,7 +189,30 @@
                     width: 50px !important;
                 }
             }
+
+            .page-video-call .box-video video {
+                height: 100% !important;
+                left: 0 !important;
+                position: absolute !important;
+                top: 0 !important;
+                -webkit-transform: unset !important;
+                transform: unset !important;
+                width: 100% !important;
+            }
+            
+            @media (min-width: 768px) {
+                .page-video-call.list-frame .wrap-video .box-video__outer-scroll {
+                    top: 50% !important;
+                    -webkit-transform: translate(0, -50%) !important;
+                    transform: translate(0, -50%) !important;
+                }
+            }
         </style>
+        <script>
+            const SOUNDS = {
+                {{range $key, $value := .sounds}}"{{$key}}": '{{static $value}}',{{end}}
+            };
+        </script>
     </head>
 <body>
     <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -181,10 +222,10 @@
             </symbol>
         </defs>
     </svg>
-    {{template "login" .}}
+    {{template "join" .}}
     {{template "header" .creationTime}}
     {{template "room"}}
     <div class="overlay"></div>
-    <script src="/assets/js/bundle.js?v={{.verStatic}}"></script>
+    <script src="{{static "js/bundle.js"}}"></script>
 </body>
 </html>

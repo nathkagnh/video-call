@@ -1,0 +1,65 @@
+{{define "join"}}
+<main class="main page-login" id="joinPage">
+    <div class="container">
+        {{if .ended}}
+        <div class="box-login">
+            <div class="room" style="text-align:center">The meeting ended<br>Thank you for attending</div>
+            <a href="/" class="back-login">Go back</a>
+        </div>
+        {{else}}
+        <div class="box-login">
+            <div class="box-title">
+                <div class="title">FPT Online Meeting</div>
+                <span class="text-message"> Connect anywhere anytime</span>
+            </div>
+            {{if .roomName}}
+            <div class="room">Room: {{.roomName}}</div>
+            {{end}}
+            <div class="form">
+                <div class="form-control upload dz-upload-avatar">
+                    <div class="box-info-user">
+                        <div class="box-avatar">
+                            <i class="icon-picture"></i>
+                        </div>
+                    </div>
+                    <div class="box-upload-file mb-2">
+                        <label>
+                            <span class="me-1"><i class="icon-upload"></i></span>
+                            <span>Upload avatar</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-control name">
+                    <input type="text" name="name" autofocus="" placeholder="Your name" autocomplete="on">
+                </div>
+                {{if not .roomName}}
+                <div class="form-control room">
+                    <input type="text" name="room" id="room" placeholder="Room name">
+                </div>
+                <div class="form-control passcode" autocomplete="off">
+                    <input type="password" name="room-passcode" id="room-passcode" placeholder="Passcode" autocomplete="new-password">
+                </div>
+                {{end}}
+                {{if .requiredPasscode}}
+                <div class="form-control passcode" autocomplete="off">
+                    <input type="password" name="room-passcode" id="room-passcode" placeholder="Passcode" autocomplete="new-password" >
+                </div>
+                {{end}}
+            </div>
+            <div class="group-button">
+                <div class="item">
+                    <a href="javascript:void(0)" class="icon ic-voice" id="btnJoinMic"><i class="icon-Voiceoff"></i></a>
+                </div>
+                <div class="item">
+                    <a href="javascript:void(0)" class="icon ic-video" id="btnJoinCam"><i class="icon-Videooff"></i></a>
+                </div>
+            </div>
+            <button type="button" class="join-meeting" onclick="appActions.connectWithFormInput()" id="btnJoin">JOIN</button>
+            {{if .roomName}}
+            <a href="/" class="back-login">Create new room</a>
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+</main>
+{{end}}

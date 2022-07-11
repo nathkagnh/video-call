@@ -29,6 +29,12 @@ type FakeRoom struct {
 	nameReturnsOnCall map[int]struct {
 		result1 livekit.RoomName
 	}
+	RemoveParticipantStub        func(livekit.ParticipantIdentity, types.ParticipantCloseReason)
+	removeParticipantMutex       sync.RWMutex
+	removeParticipantArgsForCall []struct {
+		arg1 livekit.ParticipantIdentity
+		arg2 types.ParticipantCloseReason
+	}
 	SetParticipantPermissionStub        func(types.LocalParticipant, *livekit.ParticipantPermission) error
 	setParticipantPermissionMutex       sync.RWMutex
 	setParticipantPermissionArgsForCall []struct {
@@ -211,6 +217,39 @@ func (fake *FakeRoom) NameReturnsOnCall(i int, result1 livekit.RoomName) {
 	fake.nameReturnsOnCall[i] = struct {
 		result1 livekit.RoomName
 	}{result1}
+}
+
+func (fake *FakeRoom) RemoveParticipant(arg1 livekit.ParticipantIdentity, arg2 types.ParticipantCloseReason) {
+	fake.removeParticipantMutex.Lock()
+	fake.removeParticipantArgsForCall = append(fake.removeParticipantArgsForCall, struct {
+		arg1 livekit.ParticipantIdentity
+		arg2 types.ParticipantCloseReason
+	}{arg1, arg2})
+	stub := fake.RemoveParticipantStub
+	fake.recordInvocation("RemoveParticipant", []interface{}{arg1, arg2})
+	fake.removeParticipantMutex.Unlock()
+	if stub != nil {
+		fake.RemoveParticipantStub(arg1, arg2)
+	}
+}
+
+func (fake *FakeRoom) RemoveParticipantCallCount() int {
+	fake.removeParticipantMutex.RLock()
+	defer fake.removeParticipantMutex.RUnlock()
+	return len(fake.removeParticipantArgsForCall)
+}
+
+func (fake *FakeRoom) RemoveParticipantCalls(stub func(livekit.ParticipantIdentity, types.ParticipantCloseReason)) {
+	fake.removeParticipantMutex.Lock()
+	defer fake.removeParticipantMutex.Unlock()
+	fake.RemoveParticipantStub = stub
+}
+
+func (fake *FakeRoom) RemoveParticipantArgsForCall(i int) (livekit.ParticipantIdentity, types.ParticipantCloseReason) {
+	fake.removeParticipantMutex.RLock()
+	defer fake.removeParticipantMutex.RUnlock()
+	argsForCall := fake.removeParticipantArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeRoom) SetParticipantPermission(arg1 types.LocalParticipant, arg2 *livekit.ParticipantPermission) error {
@@ -604,6 +643,8 @@ func (fake *FakeRoom) Invocations() map[string][][]interface{} {
 	defer fake.iDMutex.RUnlock()
 	fake.nameMutex.RLock()
 	defer fake.nameMutex.RUnlock()
+	fake.removeParticipantMutex.RLock()
+	defer fake.removeParticipantMutex.RUnlock()
 	fake.setParticipantPermissionMutex.RLock()
 	defer fake.setParticipantPermissionMutex.RUnlock()
 	fake.simulateScenarioMutex.RLock()

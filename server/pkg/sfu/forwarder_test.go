@@ -19,8 +19,9 @@ func disable(f *Forwarder) {
 }
 
 func newForwarder(codec webrtc.RTPCodecCapability, kind webrtc.RTPCodecType) *Forwarder {
-	return NewForwarder(codec, kind, logger.GetDefaultLogger())
-
+	f := NewForwarder(kind, logger.GetDefaultLogger())
+	f.DetermineCodec(codec)
+	return f
 }
 
 func TestForwarderMute(t *testing.T) {
@@ -62,15 +63,15 @@ func TestForwarderLayersVideo(t *testing.T) {
 	f := newForwarder(testutils.TestVP8Codec, webrtc.RTPCodecTypeVideo)
 
 	maxLayers := f.MaxLayers()
-	expectedLayers := VideoLayers{spatial: InvalidLayerSpatial, temporal: DefaultMaxLayerTemporal}
+	expectedLayers := VideoLayers{Spatial: InvalidLayerSpatial, Temporal: DefaultMaxLayerTemporal}
 	require.Equal(t, expectedLayers, maxLayers)
 
 	require.Equal(t, InvalidLayers, f.CurrentLayers())
 	require.Equal(t, InvalidLayers, f.TargetLayers())
 
 	expectedLayers = VideoLayers{
-		spatial:  DefaultMaxLayerSpatial,
-		temporal: DefaultMaxLayerTemporal,
+		Spatial:  DefaultMaxLayerSpatial,
+		Temporal: DefaultMaxLayerTemporal,
 	}
 	changed, maxLayers, currentLayers := f.SetMaxSpatialLayer(DefaultMaxLayerSpatial)
 	require.True(t, changed)
@@ -80,34 +81,34 @@ func TestForwarderLayersVideo(t *testing.T) {
 	changed, maxLayers, currentLayers = f.SetMaxSpatialLayer(DefaultMaxLayerSpatial - 1)
 	require.True(t, changed)
 	expectedLayers = VideoLayers{
-		spatial:  DefaultMaxLayerSpatial - 1,
-		temporal: DefaultMaxLayerTemporal,
+		Spatial:  DefaultMaxLayerSpatial - 1,
+		Temporal: DefaultMaxLayerTemporal,
 	}
 	require.Equal(t, expectedLayers, maxLayers)
 	require.Equal(t, expectedLayers, f.MaxLayers())
 	require.Equal(t, InvalidLayers, currentLayers)
 
-	f.currentLayers = VideoLayers{spatial: 0, temporal: 1}
+	f.currentLayers = VideoLayers{Spatial: 0, Temporal: 1}
 	changed, maxLayers, currentLayers = f.SetMaxSpatialLayer(DefaultMaxLayerSpatial - 1)
 	require.False(t, changed)
 	require.Equal(t, expectedLayers, maxLayers)
 	require.Equal(t, expectedLayers, f.MaxLayers())
-	require.Equal(t, VideoLayers{spatial: 0, temporal: 1}, currentLayers)
+	require.Equal(t, VideoLayers{Spatial: 0, Temporal: 1}, currentLayers)
 
 	changed, maxLayers, currentLayers = f.SetMaxTemporalLayer(DefaultMaxLayerTemporal)
 	require.False(t, changed)
 	require.Equal(t, expectedLayers, maxLayers)
-	require.Equal(t, VideoLayers{spatial: 0, temporal: 1}, currentLayers)
+	require.Equal(t, VideoLayers{Spatial: 0, Temporal: 1}, currentLayers)
 
 	changed, maxLayers, currentLayers = f.SetMaxTemporalLayer(DefaultMaxLayerTemporal - 1)
 	require.True(t, changed)
 	expectedLayers = VideoLayers{
-		spatial:  DefaultMaxLayerSpatial - 1,
-		temporal: DefaultMaxLayerTemporal - 1,
+		Spatial:  DefaultMaxLayerSpatial - 1,
+		Temporal: DefaultMaxLayerTemporal - 1,
 	}
 	require.Equal(t, expectedLayers, maxLayers)
 	require.Equal(t, expectedLayers, f.MaxLayers())
-	require.Equal(t, VideoLayers{spatial: 0, temporal: 1}, currentLayers)
+	require.Equal(t, VideoLayers{Spatial: 0, Temporal: 1}, currentLayers)
 }
 
 func TestForwarderGetForwardingStatus(t *testing.T) {
@@ -129,11 +130,11 @@ func TestForwarderGetForwardingStatus(t *testing.T) {
 
 	// when target is the max, should be optimal
 	f.Mute(false)
-	f.targetLayers.spatial = DefaultMaxLayerSpatial
+	f.targetLayers.Spatial = DefaultMaxLayerSpatial
 	require.Equal(t, ForwardingStatusOptimal, f.GetForwardingStatus())
 
 	// when target is less than max subscribed and max available, should be partial
-	f.targetLayers.spatial = DefaultMaxLayerSpatial - 1
+	f.targetLayers.Spatial = DefaultMaxLayerSpatial - 1
 	require.Equal(t, ForwardingStatusPartial, f.GetForwardingStatus())
 
 	// when available layers are lower than max subscribed, optimal as long as target is at max available
@@ -157,7 +158,7 @@ func TestForwarderUpTrackLayersChange(t *testing.T) {
 
 	availableLayers = []int32{}
 	f.UpTrackLayersChange(availableLayers)
-	require.Equal(t, availableLayers, f.availableLayers)
+	require.Nil(t, f.availableLayers)
 }
 
 func TestForwarderAllocate(t *testing.T) {
@@ -212,8 +213,8 @@ func TestForwarderAllocate(t *testing.T) {
 	disable(f)
 	f.UpTrackLayersChange([]int32{0})
 	expectedTargetLayers := VideoLayers{
-		spatial:  0,
-		temporal: DefaultMaxLayerTemporal,
+		Spatial:  0,
+		Temporal: DefaultMaxLayerTemporal,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateAwaitingMeasurement,
@@ -232,21 +233,50 @@ func TestForwarderAllocate(t *testing.T) {
 	require.Equal(t, InvalidLayers, f.CurrentLayers())
 
 	// allocate using bitrates, allocation should choose optimal
+	f.UpTrackLayersChange([]int32{0, 1, 2})
+	f.maxLayers = VideoLayers{Spatial: 1, Temporal: 3}
 	expectedTargetLayers = VideoLayers{
-		spatial:  2,
-		temporal: 1,
+		Spatial:  1,
+		Temporal: 3,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateOptimal,
 		change:             VideoStreamingChangeNone,
-		bandwidthRequested: bitrates[2][1],
-		bandwidthDelta:     bitrates[2][1],
-		availableLayers:    []int32{0},
+		bandwidthRequested: bitrates[1][3],
+		bandwidthDelta:     bitrates[1][3],
+		availableLayers:    []int32{0, 1, 2},
 		bitrates:           bitrates,
 		targetLayers:       expectedTargetLayers,
 		distanceToDesired:  0,
 	}
 	result = f.AllocateOptimal(bitrates)
+	require.Equal(t, expectedResult, result)
+	require.Equal(t, expectedResult, f.lastAllocation)
+	require.Equal(t, InvalidLayers, f.CurrentLayers())
+	require.Equal(t, expectedTargetLayers, f.TargetLayers())
+
+	// allocate using bitrates above maximum layer
+	f.UpTrackLayersChange([]int32{2})
+	sparseBitrates := Bitrates{
+		{0, 0, 0, 0},
+		{0, 0, 0, 0},
+		{0, 7, 0, 0},
+	}
+	expectedTargetLayers = VideoLayers{
+		Spatial:  2,
+		Temporal: 1,
+	}
+	expectedResult = VideoAllocation{
+		state:              VideoAllocationStateOptimal,
+		change:             VideoStreamingChangeNone,
+		bandwidthRequested: sparseBitrates[2][1],
+		bandwidthDelta:     sparseBitrates[2][1] - bitrates[1][3],
+		availableLayers:    []int32{2},
+		bitrates:           sparseBitrates,
+		targetLayers:       expectedTargetLayers,
+		distanceToDesired:  0,
+	}
+	result = f.AllocateOptimal(sparseBitrates)
 	require.Equal(t, expectedResult, result)
 	require.Equal(t, expectedResult, f.lastAllocation)
 	require.Equal(t, InvalidLayers, f.CurrentLayers())
@@ -268,26 +298,26 @@ func TestForwarderProvisionalAllocate(t *testing.T) {
 	f.availableLayers = availableLayers
 	f.ProvisionalAllocatePrepare(bitrates)
 
-	usedBitrate := f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 0, temporal: 0}, true)
+	usedBitrate := f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 0, Temporal: 0}, true)
 	require.Equal(t, bitrates[0][0], usedBitrate)
 
-	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 2, temporal: 3}, true)
+	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 2, Temporal: 3}, true)
 	require.Equal(t, bitrates[2][3]-bitrates[0][0], usedBitrate)
 
-	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 0, temporal: 3}, true)
+	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 0, Temporal: 3}, true)
 	require.Equal(t, bitrates[0][3]-bitrates[2][3], usedBitrate)
 
-	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 1, temporal: 2}, true)
+	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 1, Temporal: 2}, true)
 	require.Equal(t, bitrates[1][2]-bitrates[0][3], usedBitrate)
 
 	// available not enough to reach (2, 2), allocating at (2, 2) should not succeed
-	usedBitrate = f.ProvisionalAllocate(bitrates[2][2]-bitrates[1][2]-1, VideoLayers{spatial: 2, temporal: 2}, true)
+	usedBitrate = f.ProvisionalAllocate(bitrates[2][2]-bitrates[1][2]-1, VideoLayers{Spatial: 2, Temporal: 2}, true)
 	require.Equal(t, int64(0), usedBitrate)
 
 	// committing should set target to (1, 2)
 	expectedTargetLayers := VideoLayers{
-		spatial:  1,
-		temporal: 2,
+		Spatial:  1,
+		Temporal: 2,
 	}
 	expectedResult := VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -307,13 +337,13 @@ func TestForwarderProvisionalAllocate(t *testing.T) {
 	// when nothing fits and pausing disallowed, should allocate (0, 0)
 	f.targetLayers = InvalidLayers
 	f.ProvisionalAllocatePrepare(bitrates)
-	usedBitrate = f.ProvisionalAllocate(0, VideoLayers{spatial: 0, temporal: 0}, false)
+	usedBitrate = f.ProvisionalAllocate(0, VideoLayers{Spatial: 0, Temporal: 0}, false)
 	require.Equal(t, int64(1), usedBitrate)
 
 	// committing should set target to (0, 0)
 	expectedTargetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 0,
+		Spatial:  0,
+		Temporal: 0,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -343,10 +373,10 @@ func TestForwarderProvisionalAllocateMute(t *testing.T) {
 	f.Mute(true)
 	f.ProvisionalAllocatePrepare(bitrates)
 
-	usedBitrate := f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 0, temporal: 0}, true)
+	usedBitrate := f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 0, Temporal: 0}, true)
 	require.Equal(t, int64(0), usedBitrate)
 
-	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 1, temporal: 2}, true)
+	usedBitrate = f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 1, Temporal: 2}, true)
 	require.Equal(t, int64(0), usedBitrate)
 
 	// committing should set target to InvalidLayers as track is muted
@@ -384,14 +414,14 @@ func TestForwarderProvisionalAllocateGetCooperativeTransition(t *testing.T) {
 	// from scratch (InvalidLayers) should give back layer (0, 0)
 	expectedTransition := VideoTransition{
 		from:           InvalidLayers,
-		to:             VideoLayers{spatial: 0, temporal: 0},
+		to:             VideoLayers{Spatial: 0, Temporal: 0},
 		bandwidthDelta: 1,
 	}
 	transition := f.ProvisionalAllocateGetCooperativeTransition()
 	require.Equal(t, expectedTransition, transition)
 
 	// committing should set target to (0, 0)
-	expectedLayers := VideoLayers{spatial: 0, temporal: 0}
+	expectedLayers := VideoLayers{Spatial: 0, Temporal: 0}
 	expectedResult := VideoAllocation{
 		state:              VideoAllocationStateDeficient,
 		change:             VideoStreamingChangeResuming,
@@ -408,7 +438,7 @@ func TestForwarderProvisionalAllocateGetCooperativeTransition(t *testing.T) {
 	require.Equal(t, expectedLayers, f.TargetLayers())
 
 	// a higher target that is already streaming, just maintain it
-	targetLayers := VideoLayers{spatial: 2, temporal: 1}
+	targetLayers := VideoLayers{Spatial: 2, Temporal: 1}
 	f.targetLayers = targetLayers
 	f.lastAllocation.bandwidthRequested = 10
 	expectedTransition = VideoTransition{
@@ -420,7 +450,7 @@ func TestForwarderProvisionalAllocateGetCooperativeTransition(t *testing.T) {
 	require.Equal(t, expectedTransition, transition)
 
 	// committing should set target to (2, 1)
-	expectedLayers = VideoLayers{spatial: 2, temporal: 1}
+	expectedLayers = VideoLayers{Spatial: 2, Temporal: 1}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateOptimal,
 		change:             VideoStreamingChangeNone,
@@ -437,11 +467,11 @@ func TestForwarderProvisionalAllocateGetCooperativeTransition(t *testing.T) {
 	require.Equal(t, expectedLayers, f.TargetLayers())
 
 	// from a target that has become unavailable, should switch to lower available layer
-	targetLayers = VideoLayers{spatial: 2, temporal: 2}
+	targetLayers = VideoLayers{Spatial: 2, Temporal: 2}
 	f.targetLayers = targetLayers
 	expectedTransition = VideoTransition{
 		from:           targetLayers,
-		to:             VideoLayers{spatial: 2, temporal: 1},
+		to:             VideoLayers{Spatial: 2, Temporal: 1},
 		bandwidthDelta: 0,
 	}
 	transition = f.ProvisionalAllocateGetCooperativeTransition()
@@ -455,7 +485,7 @@ func TestForwarderProvisionalAllocateGetCooperativeTransition(t *testing.T) {
 
 	// mute should send target to InvalidLayers
 	expectedTransition = VideoTransition{
-		from:           VideoLayers{spatial: 2, temporal: 1},
+		from:           VideoLayers{Spatial: 2, Temporal: 1},
 		to:             InvalidLayers,
 		bandwidthDelta: -10,
 	}
@@ -476,11 +506,11 @@ func TestForwarderProvisionalAllocateGetBestWeightedTransition(t *testing.T) {
 
 	f.ProvisionalAllocatePrepare(bitrates)
 
-	f.targetLayers = VideoLayers{spatial: 2, temporal: 2}
+	f.targetLayers = VideoLayers{Spatial: 2, Temporal: 2}
 	f.lastAllocation.bandwidthRequested = bitrates[2][2]
 	expectedTransition := VideoTransition{
 		from:           f.targetLayers,
-		to:             VideoLayers{spatial: 2, temporal: 0},
+		to:             VideoLayers{Spatial: 2, Temporal: 0},
 		bandwidthDelta: 2,
 	}
 	transition := f.ProvisionalAllocateGetBestWeightedTransition()
@@ -515,7 +545,7 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 
 	// if layers have not caught up, should not allocate next layer
 	f.lastAllocation.state = VideoAllocationStateDeficient
-	f.targetLayers.spatial = 0
+	f.targetLayers.Spatial = 0
 	expectedResult := VideoAllocation{
 		state:              VideoAllocationStateDeficient,
 		change:             VideoStreamingChangeNone,
@@ -530,14 +560,14 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	require.Equal(t, expectedResult, result)
 	require.Equal(t, expectedResult, f.lastAllocation)
 	require.False(t, boosted)
-	f.currentLayers.spatial = 0
+	f.currentLayers.Spatial = 0
 
-	f.targetLayers.temporal = 0
+	f.targetLayers.Temporal = 0
 	result, boosted = f.AllocateNextHigher(ChannelCapacityInfinity, bitrates)
 	require.Equal(t, expectedResult, result)
 	require.Equal(t, expectedResult, f.lastAllocation)
 	require.False(t, boosted)
-	f.currentLayers.temporal = 0
+	f.currentLayers.Temporal = 0
 
 	f.lastAllocation.bandwidthRequested = bitrates[0][0]
 
@@ -559,8 +589,8 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 
 	// move from (0, 0) -> (0, 1), i.e. a higher temporal layer is available in the same spatial layer
 	expectedTargetLayers := VideoLayers{
-		spatial:  0,
-		temporal: 1,
+		Spatial:  0,
+		Temporal: 1,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -579,10 +609,10 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	require.True(t, boosted)
 
 	// move from (0, 1) -> (1, 0), i.e. a higher spatial layer is available
-	f.currentLayers.temporal = 1
+	f.currentLayers.Temporal = 1
 	expectedTargetLayers = VideoLayers{
-		spatial:  1,
-		temporal: 0,
+		Spatial:  1,
+		Temporal: 0,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -601,11 +631,11 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	require.True(t, boosted)
 
 	// next higher, move from (1, 0) -> (1, 3), still deficient though
-	f.currentLayers.spatial = 1
-	f.currentLayers.temporal = 0
+	f.currentLayers.Spatial = 1
+	f.currentLayers.Temporal = 0
 	expectedTargetLayers = VideoLayers{
-		spatial:  1,
-		temporal: 3,
+		Spatial:  1,
+		Temporal: 3,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -624,10 +654,10 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	require.True(t, boosted)
 
 	// next higher, move from (1, 3) -> (2, 1), optimal allocation
-	f.currentLayers.temporal = 3
+	f.currentLayers.Temporal = 3
 	expectedTargetLayers = VideoLayers{
-		spatial:  2,
-		temporal: 1,
+		Spatial:  2,
+		Temporal: 1,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateOptimal,
@@ -646,8 +676,8 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	require.True(t, boosted)
 
 	// ask again, should return not boosted as there is no room to go higher
-	f.currentLayers.spatial = 2
-	f.currentLayers.temporal = 1
+	f.currentLayers.Spatial = 2
+	f.currentLayers.Temporal = 1
 	result, boosted = f.AllocateNextHigher(ChannelCapacityInfinity, bitrates)
 	require.Equal(t, expectedResult, result)
 	require.Equal(t, expectedResult, f.lastAllocation)
@@ -660,8 +690,8 @@ func TestForwarderAllocateNextHigher(t *testing.T) {
 	f.lastAllocation.bandwidthRequested = 0
 
 	expectedTargetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 0,
+		Spatial:  0,
+		Temporal: 0,
 	}
 	expectedResult = VideoAllocation{
 		state:              VideoAllocationStateDeficient,
@@ -711,7 +741,7 @@ func TestForwarderPause(t *testing.T) {
 
 	f.availableLayers = availableLayers
 	f.ProvisionalAllocatePrepare(bitrates)
-	f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 0, temporal: 0}, true)
+	f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 0, Temporal: 0}, true)
 	// should have set target at (0, 0)
 	f.ProvisionalAllocateCommit()
 
@@ -745,7 +775,7 @@ func TestForwarderPauseMute(t *testing.T) {
 
 	f.availableLayers = availableLayers
 	f.ProvisionalAllocatePrepare(bitrates)
-	f.ProvisionalAllocate(bitrates[2][3], VideoLayers{spatial: 0, temporal: 0}, true)
+	f.ProvisionalAllocate(bitrates[2][3], VideoLayers{Spatial: 0, Temporal: 0}, true)
 	// should have set target at (0, 0)
 	f.ProvisionalAllocateCommit()
 
@@ -969,8 +999,8 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 
 	// although target layer matches, not a key frame, so should drop and ask to send PLI
 	f.targetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 1,
+		Spatial:  0,
+		Temporal: 1,
 	}
 	expectedTP = TranslationParams{
 		shouldDrop: true,
@@ -1003,7 +1033,7 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 			timestamp:      0xabcdef,
 		},
 		vp8: &TranslationParamsVP8{
-			header: &buffer.VP8{
+			Header: &buffer.VP8{
 				FirstByte:        25,
 				PictureIDPresent: 1,
 				PictureID:        13467,
@@ -1079,7 +1109,7 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 			timestamp:      0xabcdef,
 		},
 		vp8: &TranslationParamsVP8{
-			header: &buffer.VP8{
+			Header: &buffer.VP8{
 				FirstByte:        25,
 				PictureIDPresent: 1,
 				PictureID:        13467,
@@ -1160,7 +1190,7 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 			timestamp:      0xabcdef,
 		},
 		vp8: &TranslationParamsVP8{
-			header: &buffer.VP8{
+			Header: &buffer.VP8{
 				FirstByte:        25,
 				PictureIDPresent: 1,
 				PictureID:        13468,
@@ -1222,8 +1252,8 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 	// switching SSRC (happens for new layer or new track source)
 	// should lock onto the new source, but sequence number should be contiguous
 	f.targetLayers = VideoLayers{
-		spatial:  1,
-		temporal: 1,
+		Spatial:  1,
+		Temporal: 1,
 	}
 
 	params = &testutils.TestExtPacketParams{
@@ -1256,7 +1286,7 @@ func TestForwarderGetTranslationParamsVideo(t *testing.T) {
 			timestamp:      0xabcdf0,
 		},
 		vp8: &TranslationParamsVP8{
-			header: &buffer.VP8{
+			Header: &buffer.VP8{
 				FirstByte:        25,
 				PictureIDPresent: 1,
 				PictureID:        13469,
@@ -1306,8 +1336,8 @@ func TestForwardGetSnTsForPadding(t *testing.T) {
 	extPkt, _ := testutils.GetTestExtPacketVP8(params, vp8)
 
 	f.targetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 1,
+		Spatial:  0,
+		Temporal: 1,
 	}
 	f.currentLayers = InvalidLayers
 
@@ -1373,8 +1403,8 @@ func TestForwardGetSnTsForBlankFrames(t *testing.T) {
 	extPkt, _ := testutils.GetTestExtPacketVP8(params, vp8)
 
 	f.targetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 1,
+		Spatial:  0,
+		Temporal: 1,
 	}
 	f.currentLayers = InvalidLayers
 
@@ -1382,37 +1412,37 @@ func TestForwardGetSnTsForBlankFrames(t *testing.T) {
 	_, _ = f.GetTranslationParams(extPkt, 0)
 
 	// should get back frame end needed as the last packet did not have RTP marker set
-	snts, frameEndNeeded, err := f.GetSnTsForBlankFrames()
+	numBlankFrames := 6
+	snts, frameEndNeeded, err := f.GetSnTsForBlankFrames(30, numBlankFrames)
 	require.NoError(t, err)
 	require.True(t, frameEndNeeded)
 
 	// there should be one more than RTPBlankFramesMax as one would have been allocated to end previous frame
-	numPadding := RTPBlankFramesMax + 1
+	numPadding := numBlankFrames + 1
 	clockRate := testutils.TestVP8Codec.ClockRate
 	frameRate := uint32(30)
 	var sntsExpected = make([]SnTs, numPadding)
 	for i := 0; i < numPadding; i++ {
 		sntsExpected[i] = SnTs{
-			sequenceNumber: 23333 + uint16(i) + 1,
-			timestamp:      0xabcdef + (uint32(i)*clockRate)/frameRate,
+			sequenceNumber: params.SequenceNumber + uint16(i) + 1,
+			timestamp:      params.Timestamp + (uint32(i)*clockRate)/frameRate,
 		}
 	}
 	require.Equal(t, sntsExpected, snts)
 
 	// now that there is a marker, timestamp should jump on first padding when asked again
 	// also number of padding should be RTPBlankFramesMax
-	snts, frameEndNeeded, err = f.GetSnTsForBlankFrames()
-	require.NoError(t, err)
-	require.False(t, frameEndNeeded)
-
-	numPadding = RTPBlankFramesMax
+	numPadding = numBlankFrames
 	sntsExpected = sntsExpected[:numPadding]
 	for i := 0; i < numPadding; i++ {
 		sntsExpected[i] = SnTs{
-			sequenceNumber: 23340 + uint16(i) + 1,
-			timestamp:      0xabcdef + (uint32(i+1)*clockRate)/frameRate,
+			sequenceNumber: params.SequenceNumber + uint16(len(snts)) + uint16(i) + 1,
+			timestamp:      snts[len(snts)-1].timestamp + (uint32(i+1)*clockRate)/frameRate,
 		}
 	}
+	snts, frameEndNeeded, err = f.GetSnTsForBlankFrames(30, numBlankFrames)
+	require.NoError(t, err)
+	require.False(t, frameEndNeeded)
 	require.Equal(t, sntsExpected, snts)
 }
 
@@ -1443,8 +1473,8 @@ func TestForwardGetPaddingVP8(t *testing.T) {
 	extPkt, _ := testutils.GetTestExtPacketVP8(params, vp8)
 
 	f.targetLayers = VideoLayers{
-		spatial:  0,
-		temporal: 1,
+		Spatial:  0,
+		Temporal: 1,
 	}
 	f.currentLayers = InvalidLayers
 

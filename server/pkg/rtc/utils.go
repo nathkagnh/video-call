@@ -35,12 +35,12 @@ func PackDataTrackLabel(participantID livekit.ParticipantID, trackID livekit.Tra
 	return string(participantID) + trackIdSeparator + string(trackID) + trackIdSeparator + label
 }
 
-func UnpackDataTrackLabel(packed string) (peerID livekit.ParticipantID, trackID livekit.TrackID, label string) {
+func UnpackDataTrackLabel(packed string) (participantID livekit.ParticipantID, trackID livekit.TrackID, label string) {
 	parts := strings.Split(packed, trackIdSeparator)
 	if len(parts) != 3 {
 		return "", livekit.TrackID(packed), ""
 	}
-	peerID = livekit.ParticipantID(parts[0])
+	participantID = livekit.ParticipantID(parts[0])
 	trackID = livekit.TrackID(parts[1])
 	label = parts[2]
 	return
@@ -166,5 +166,13 @@ func LoggerWithPCTarget(l logger.Logger, target livekit.SignalTarget) logger.Log
 	}
 
 	lr = lr.WithValues("transport", target)
+	return logger.Logger(lr)
+}
+
+func LoggerWithCodecMime(l logger.Logger, mime string) logger.Logger {
+	lr := logr.Logger(l)
+	if mime != "" {
+		lr = lr.WithValues("mime", mime)
+	}
 	return logger.Logger(lr)
 }

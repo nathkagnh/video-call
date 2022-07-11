@@ -7,6 +7,7 @@ import RemoteAudioTrack from '../track/RemoteAudioTrack';
 import RemoteTrackPublication from '../track/RemoteTrackPublication';
 import RemoteVideoTrack from '../track/RemoteVideoTrack';
 import { Track } from '../track/Track';
+import { TrackPublication } from '../track/TrackPublication';
 import { AdaptiveStreamSettings, RemoteTrack } from '../track/types';
 import Participant, { ParticipantEventCallbacks } from './Participant';
 
@@ -49,8 +50,17 @@ export default class RemoteParticipant extends Participant {
       });
       this.signalClient.sendUpdateSubscription(sub);
     });
-    publication.on(TrackEvent.Ended, (track: RemoteTrack) => {
-      this.emit(ParticipantEvent.TrackUnsubscribed, track, publication);
+    publication.on(
+      TrackEvent.SubscriptionPermissionChanged,
+      (status: TrackPublication.SubscriptionStatus) => {
+        this.emit(ParticipantEvent.TrackSubscriptionPermissionChanged, publication, status);
+      },
+    );
+    publication.on(TrackEvent.Subscribed, (track: RemoteTrack) => {
+      this.emit(ParticipantEvent.TrackSubscribed, track, publication);
+    });
+    publication.on(TrackEvent.Unsubscribed, (previousTrack: RemoteTrack) => {
+      this.emit(ParticipantEvent.TrackUnsubscribed, previousTrack, publication);
     });
   }
 
@@ -164,7 +174,6 @@ export default class RemoteParticipant extends Participant {
     ) {
       track.setVolume(this.volume);
     }
-    this.emit(ParticipantEvent.TrackSubscribed, track, publication);
 
     return publication;
   }
@@ -216,6 +225,10 @@ export default class RemoteParticipant extends Participant {
     // detect removed tracks
     this.tracks.forEach((publication) => {
       if (!validTracks.has(publication.trackSid)) {
+        log.trace('detected removed track on remote participant, unpublishing', {
+          publication,
+          participantSid: this.sid,
+        });
         this.unpublishTrack(publication.trackSid, true);
       }
     });
@@ -245,13 +258,8 @@ export default class RemoteParticipant extends Participant {
     // also send unsubscribe, if track is actively subscribed
     const { track } = publication;
     if (track) {
-      const { isSubscribed } = publication;
       track.stop();
       publication.setTrack(undefined);
-      // always send unsubscribed, since apps may rely on this
-      if (isSubscribed) {
-        this.emit(ParticipantEvent.TrackUnsubscribed, track, publication);
-      }
     }
     if (sendUnpublish) {
       this.emit(ParticipantEvent.TrackUnpublished, publication);

@@ -37,6 +37,10 @@ func (p *ParticipantImpl) SendJoinResponse(
 	iceServers []*livekit.ICEServer,
 	region string,
 ) error {
+	if p.State() == livekit.ParticipantInfo_JOINING {
+		p.updateState(livekit.ParticipantInfo_JOINED)
+	}
+
 	// send Join response
 	return p.writeMessage(&livekit.SignalResponse{
 		Message: &livekit.SignalResponse_Join{
@@ -99,7 +103,7 @@ func (p *ParticipantImpl) SendSpeakerUpdate(speakers []*livekit.SpeakerInfo) err
 	var scopedSpeakers []*livekit.SpeakerInfo
 	for _, s := range speakers {
 		participantID := livekit.ParticipantID(s.Sid)
-		if p.isSubscribedTo(participantID) || participantID == p.ID() {
+		if p.IsSubscribedTo(participantID) || participantID == p.ID() {
 			scopedSpeakers = append(scopedSpeakers, s)
 		}
 	}
@@ -175,6 +179,22 @@ func (p *ParticipantImpl) SendRefreshToken(token string) error {
 }
 
 func (p *ParticipantImpl) sendIceCandidate(c *webrtc.ICECandidate, target livekit.SignalTarget) {
+	var filterOut bool
+	p.lock.RLock()
+	if target == livekit.SignalTarget_SUBSCRIBER {
+		if p.iceConfig.PreferSubTcp && c.Protocol != webrtc.ICEProtocolTCP {
+			filterOut = true
+		}
+	} else if target == livekit.SignalTarget_PUBLISHER {
+		if p.iceConfig.PreferPubTcp && c.Protocol != webrtc.ICEProtocolTCP {
+			filterOut = true
+		}
+	}
+	p.lock.RUnlock()
+	if filterOut {
+		return
+	}
+
 	ci := c.ToJSON()
 
 	// write candidate

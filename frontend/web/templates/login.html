@@ -1,65 +1,46 @@
-{{define "login"}}
-<main class="main page-login" id="joinPage">
-    <div class="container">
-        {{if .ended}}
-        <div class="box-login">
-            <div class="room" style="text-align:center">The meeting ended<br>Thank you for attending</div>
-            <a href="/" class="back-login">Go back</a>
-        </div>
-        {{else}}
-        <div class="box-login">
-            <div class="box-title">
-                <div class="title">FPT Online Meeting</div>
-                <span class="text-message"> Connect anywhere anytime</span>
-            </div>
-            {{if .roomName}}
-            <div class="room">Room: {{.roomName}}</div>
-            {{end}}
-            <div class="form">
-                <div class="form-control upload dz-upload-avatar">
-                    <div class="box-info-user">
-                        <div class="box-avatar">
-                            <i class="icon-picture"></i>
-                        </div>
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+        <title>
+            Login - FPT Online Meeting
+        </title>
+        <meta name="description" content="FO meeting.">
+        <link rel="apple-touch-icon" href="/assets/img/conference.png">
+        <link rel="stylesheet" href="/assets/css/sweetalert2.min.css" id="theme-styles">
+        <link rel="stylesheet" type="text/css" href="/assets/css/style.css?v={{.verStatic}}" />
+        <style>
+            input:-webkit-autofill,
+            input:-webkit-autofill:focus {
+                transition: background-color 600000s 0s, color 600000s 0s;
+            }
+            input[data-autocompleted] {
+                background-color: transparent !important;
+            }
+        </style>
+    </head>
+<body>
+    {{if .error}}
+    <script>alert("{{.error}}");</script>
+    {{end}}
+    <main class="main page-login" id="joinPage">
+        <div class="container">
+            <form method="post" class="box-login">
+                <div class="box-title">
+                    <div class="title">FPT Online Meeting</div>
+                </div>
+                <div class="form">
+                    <div class="form-control name">
+                        <input type="text" name="user" placeholder="User name" value="{{.user}}" required>
                     </div>
-                    <div class="box-upload-file mb-2">
-                        <label>
-                            <span class="me-1"><i class="icon-upload"></i></span>
-                            <span>Upload avatar</span>
-                        </label>
+                    <div class="form-control passcode">
+                        <input type="password" name="password" placeholder="Password" value="{{.password}}" required>
                     </div>
                 </div>
-                <div class="form-control name">
-                    <input type="text" name="name" autofocus="" placeholder="Your name" autocomplete="on">
-                </div>
-                {{if not .roomName}}
-                <div class="form-control room">
-                    <input type="text" name="room" id="room" placeholder="Room name">
-                </div>
-                <div class="form-control passcode" autocomplete="off">
-                    <input type="password" name="room-passcode" id="room-passcode" placeholder="Passcode" autocomplete="new-password">
-                </div>
-                {{end}}
-                {{if .requiredPasscode}}
-                <div class="form-control passcode" autocomplete="off">
-                    <input type="password" name="room-passcode" id="room-passcode" placeholder="Passcode" autocomplete="new-password" >
-                </div>
-                {{end}}
-            </div>
-            <div class="group-button">
-                <div class="item">
-                    <a href="javascript:void(0)" class="icon ic-voice" id="btnJoinMic"><i class="icon-Voiceoff"></i></a>
-                </div>
-                <div class="item">
-                    <a href="javascript:void(0)" class="icon ic-video" id="btnJoinCam"><i class="icon-Videooff"></i></a>
-                </div>
-            </div>
-            <button type="button" class="join-meeting" onclick="appActions.connectWithFormInput()" id="btnJoin">JOIN</button>
-            {{if .roomName}}
-            <a href="/" class="back-login">Create new room</a>
-            {{end}}
+                <button type="submit" class="join-meeting">LOGIN</button>
+            </form>
         </div>
-        {{end}}
-    </div>
-</main>
-{{end}}
+    </main>
+</body>
+</html>

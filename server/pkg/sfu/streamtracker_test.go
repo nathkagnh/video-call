@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,10 +15,11 @@ import (
 
 func newStreamTracker(samplesRequired uint32, cyclesRequired uint32, cycleDuration time.Duration) *StreamTracker {
 	return NewStreamTracker(StreamTrackerParams{
-		SamplesRequired: samplesRequired,
-		CyclesRequired:  cyclesRequired,
-		CycleDuration:   cycleDuration,
-		Logger:          logger.GetDefaultLogger(),
+		SamplesRequired:       samplesRequired,
+		CyclesRequired:        cyclesRequired,
+		CycleDuration:         cycleDuration,
+		BitrateReportInterval: 1 * time.Second,
+		Logger:                logger.GetDefaultLogger(),
 	})
 }
 
@@ -32,7 +34,7 @@ func TestStreamTracker(t *testing.T) {
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
 		// observe first packet
-		tracker.Observe(1, 0, 0, 0)
+		tracker.Observe(1, 0, 20, 10)
 
 		testutils.WithTimeout(t, func() string {
 			if callbackCalled.Load() {
@@ -53,18 +55,26 @@ func TestStreamTracker(t *testing.T) {
 		tracker.Start()
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
-		tracker.Observe(1, 0, 0, 0)
-		testutils.WithTimeout(t, func() string {
-			if tracker.Status() == StreamStatusActive {
-				return ""
-			} else {
-				return "first packet did not activate stream"
-			}
+		callbackStatusMu := sync.RWMutex{}
+		callbackStatusMu.Lock()
+		callbackStatus := StreamStatusStopped
+		callbackStatusMu.Unlock()
+		tracker.OnStatusChanged(func(status StreamStatus) {
+			callbackStatusMu.Lock()
+			callbackStatus = status
+			callbackStatusMu.Unlock()
 		})
 
-		callbackCalled := atomic.NewBool(false)
-		tracker.OnStatusChanged(func(status StreamStatus) {
-			callbackCalled.Store(true)
+		tracker.Observe(1, 0, 20, 10)
+		testutils.WithTimeout(t, func() string {
+			callbackStatusMu.RLock()
+			defer callbackStatusMu.RUnlock()
+
+			if callbackStatus == StreamStatusActive {
+				return ""
+			}
+
+			return "first packet did not activate stream"
 		})
 		require.Equal(t, StreamStatusActive, tracker.Status())
 
@@ -72,14 +82,17 @@ func TestStreamTracker(t *testing.T) {
 		tracker.detectChanges()
 
 		testutils.WithTimeout(t, func() string {
-			if callbackCalled.Load() {
+			callbackStatusMu.RLock()
+			defer callbackStatusMu.RUnlock()
+
+			if callbackStatus == StreamStatusStopped {
 				return ""
-			} else {
-				return "inactive cycle did not declare stream stopped"
 			}
+
+			return "inactive cycle did not declare stream stopped"
 		})
 		require.Equal(t, StreamStatusStopped, tracker.Status())
-		require.True(t, callbackCalled.Load())
+		require.Equal(t, StreamStatusStopped, callbackStatus)
 
 		tracker.Stop()
 	})
@@ -89,7 +102,7 @@ func TestStreamTracker(t *testing.T) {
 		tracker.Start()
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
-		tracker.Observe(1, 0, 0, 0)
+		tracker.Observe(1, 0, 20, 10)
 		testutils.WithTimeout(t, func() string {
 			if tracker.Status() == StreamStatusActive {
 				return ""
@@ -100,11 +113,11 @@ func TestStreamTracker(t *testing.T) {
 
 		tracker.maybeSetStatus(StreamStatusStopped)
 
-		tracker.Observe(2, 0, 0, 0)
+		tracker.Observe(2, 0, 20, 10)
 		tracker.detectChanges()
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
-		tracker.Observe(3, 0, 0, 0)
+		tracker.Observe(3, 0, 20, 10)
 		tracker.detectChanges()
 		require.Equal(t, StreamStatusActive, tracker.Status())
 
@@ -114,7 +127,7 @@ func TestStreamTracker(t *testing.T) {
 	t.Run("changes to inactive when paused", func(t *testing.T) {
 		tracker := newStreamTracker(5, 60, 500*time.Millisecond)
 		tracker.Start()
-		tracker.Observe(1, 0, 0, 0)
+		tracker.Observe(1, 0, 20, 10)
 		testutils.WithTimeout(t, func() string {
 			if tracker.Status() == StreamStatusActive {
 				return ""
@@ -140,7 +153,7 @@ func TestStreamTracker(t *testing.T) {
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
 		// observe first packet
-		tracker.Observe(1, 0, 0, 0)
+		tracker.Observe(1, 0, 20, 10)
 
 		testutils.WithTimeout(t, func() string {
 			if callbackCalled.Load() == 1 {
@@ -154,10 +167,10 @@ func TestStreamTracker(t *testing.T) {
 		require.Equal(t, uint32(1), callbackCalled.Load())
 
 		// observe a few more
-		tracker.Observe(2, 0, 0, 0)
-		tracker.Observe(3, 0, 0, 0)
-		tracker.Observe(4, 0, 0, 0)
-		tracker.Observe(5, 0, 0, 0)
+		tracker.Observe(2, 0, 20, 10)
+		tracker.Observe(3, 0, 20, 10)
+		tracker.Observe(4, 0, 20, 10)
+		tracker.Observe(5, 0, 20, 10)
 		tracker.detectChanges()
 
 		// should still be active
@@ -168,7 +181,7 @@ func TestStreamTracker(t *testing.T) {
 		require.Equal(t, StreamStatusStopped, tracker.Status())
 
 		// first packet after reset
-		tracker.Observe(1, 0, 0, 0)
+		tracker.Observe(1, 0, 20, 10)
 
 		testutils.WithTimeout(t, func() string {
 			if callbackCalled.Load() == 2 {
