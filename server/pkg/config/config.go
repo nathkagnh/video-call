@@ -30,6 +30,7 @@ const (
 
 type Config struct {
 	Port           uint32             `yaml:"port"`
+	BindAddresses  []string           `yaml:"bind_addresses"`
 	PrometheusPort uint32             `yaml:"prometheus_port,omitempty"`
 	RTC            RTCConfig          `yaml:"rtc,omitempty"`
 	Redis          RedisConfig        `yaml:"redis,omitempty"`
@@ -37,6 +38,7 @@ type Config struct {
 	Video          VideoConfig        `yaml:"video,omitempty"`
 	Room           RoomConfig         `yaml:"room,omitempty"`
 	TURN           TURNConfig         `yaml:"turn,omitempty"`
+	Ingress        IngressConfig      `yaml:"ingress,omitempty"`
 	WebHook        WebHookConfig      `yaml:"webhook,omitempty"`
 	NodeSelector   NodeSelectorConfig `yaml:"node_selector,omitempty"`
 	KeyFile        string             `yaml:"key_file,omitempty"`
@@ -72,6 +74,9 @@ type RTCConfig struct {
 
 	// for testing, disable UDP
 	ForceTCP bool `yaml:"force_tcp,omitempty"`
+
+	// allow TCP fallback
+	AllowTCPFallback bool `yaml:"allow_tcp_fallback,omitempty"`
 }
 
 type TURNServer struct {
@@ -189,13 +194,16 @@ type LimitConfig struct {
 	BytesPerSec float32 `yaml:"bytes_per_sec"`
 }
 
+type IngressConfig struct {
+	RTMPBaseURL string `yaml:"rtmp_base_url"`
+}
+
 func NewConfig(confString string, c *cli.Context) (*Config, error) {
 	// start with defaults
 	conf := &Config{
 		Port: 7880,
 		RTC: RTCConfig{
 			UseExternalIP:     false,
-			UseICELite:        true,
 			TCPPort:           7881,
 			UDPPort:           0,
 			ICEPortRangeStart: 0,
@@ -227,6 +235,7 @@ func NewConfig(confString string, c *cli.Context) (*Config, error) {
 			AutoCreate: true,
 			EnabledCodecs: []CodecSpec{
 				{Mime: webrtc.MimeTypeOpus},
+				{Mime: "audio/red"},
 				{Mime: webrtc.MimeTypeVP8},
 				{Mime: webrtc.MimeTypeH264},
 				// {Mime: webrtc.MimeTypeAV1},
@@ -348,7 +357,9 @@ func (conf *Config) updateFromCLI(c *cli.Context) error {
 	if c.IsSet("udp-port") {
 		conf.RTC.UDPPort = uint32(c.Int("udp-port"))
 	}
-
+	if c.IsSet("bind") {
+		conf.BindAddresses = c.StringSlice("bind")
+	}
 	return nil
 }
 

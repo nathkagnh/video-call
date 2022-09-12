@@ -23,11 +23,11 @@ import {
   VideoPresets,
   VideoQuality,
 } from '../src/index';
-import Dropzone from 'dropzone';
-import Swal from 'sweetalert2';
-import SimpleBar from 'simplebar';
-import { Buffer } from 'buffer';
-import fscreen from 'fscreen';
+import Dropzone from "dropzone";
+import Swal from "sweetalert2";
+import SimpleBar from "simplebar";
+import { Buffer } from "buffer";
+import fscreen from "fscreen";
 
 const $ = (id: string) => document.getElementById(id);
 const API_URL = "https://meeting.fptonline.net";
@@ -307,7 +307,6 @@ const appActions = {
 
     const simulcast = true;
     const forceTURN = false;
-    const publishOnly = false;
     const shouldPublish = true;
     const preferredCodec = "" as VideoCodec;
 
@@ -328,8 +327,7 @@ const appActions = {
     };
 
     const connectOpts: RoomConnectOptions = {
-      autoSubscribe: !publishOnly,
-      publishOnly: publishOnly ? 'publish_only' : undefined,
+      autoSubscribe: true,
     };
     if (forceTURN) {
       connectOpts.rtcConfig = {
@@ -477,6 +475,8 @@ const appActions = {
         showCloseButton: true,
         heightAuto: false,
         background: '#292c3d',
+      }).then(() => {
+        window.location.reload();
       });
 
       return;
@@ -589,12 +589,20 @@ const appActions = {
     if (textField.value) {
       const msg = state.encoder.encode(textField.value);
       currentRoom.localParticipant.publishData(msg, DataPacket_Kind.RELIABLE);
-
+      const dateNow = new Date;
+      let text = textField.value;
+      if (/[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/.test(text)) {
+        text = `<a href="${text}" target="_blank">${text}<svg width="14" height="14"><use xlink:href="#ExternalLink"></use></svg></a>`;
+      }
+      
       const chatTemplate = `
       <div class="box-chat__inner wrap-mess reply">
+        <div class="box-chat__inner head">
+          <span class="time">${dateNow.getHours()}:${dateNow.getMinutes()}</span>
+        </div>
         <div class="box-chat__inner content">
           <div class="box-messenger">
-            <div class="messenger">${textField.value}</div>
+            <div class="messenger">${text}</div>
           </div>
           <span class="user-seen">
             <i class="icon-checkcircle"></i>
@@ -935,6 +943,11 @@ function handleData(msg: Uint8Array, participant?: RemoteParticipant) {
   const avatar = getAvatar(participant);
   const chatMessageElm = <HTMLDivElement>$('chat-message');
 
+  let text = str;
+  if (/[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/.test(text)) {
+    text = `<a href="${text}" target="_blank">${text}<svg width="14" height="14"><use xlink:href="#ExternalLink"></use></svg></a>`;
+  }
+
   const chatTemplate = `
   <div class="box-chat__inner wrap-mess">
     <div class="box-chat__inner head">
@@ -951,7 +964,7 @@ function handleData(msg: Uint8Array, participant?: RemoteParticipant) {
         </div>
       </span>
       <div class="box-messenger">
-        <div class="messenger">${str}</div>
+        <div class="messenger">${text}</div>
       </div>
     </div>
   </div>
@@ -1023,7 +1036,7 @@ function participantDisconnected(participant: RemoteParticipant) {
 
 function handleRoomDisconnect(reason?: DisconnectReason) {
   if (!currentRoom) return;
-  appendLog('disconnected from room', {reason});
+  appendLog('disconnected from room', { reason });
   setButtonsForState(false);
   renderParticipant(currentRoom.localParticipant, true);
   currentRoom.participants.forEach((p) => {

@@ -1,5 +1,14 @@
+import { MediaDescription, parse, write } from 'sdp-transform';
 import { debounce } from 'ts-debounce';
 import log from '../logger';
+import { NegotiationError } from './errors';
+
+/** @internal */
+interface TrackBitrateInfo {
+  sid: string;
+  codec: string;
+  maxbr: number;
+}
 
 /** @internal */
 export default class PCTransport {
@@ -10,6 +19,8 @@ export default class PCTransport {
   restartingIce: boolean = false;
 
   renegotiate: boolean = false;
+
+  trackBitrates: TrackBitrateInfo[] = [];
 
   onOffer?: (offer: RTCSessionDescriptionInit) => void;
 
@@ -44,8 +55,16 @@ export default class PCTransport {
   }
 
   // debounced negotiate interface
-  negotiate = debounce(() => {
-    this.createAndSendOffer();
+  negotiate = debounce((onError?: (e: Error) => void) => {
+    try {
+      this.createAndSendOffer();
+    } catch (e) {
+      if (onError) {
+        onError(e as Error);
+      } else {
+        throw e;
+      }
+    }
   }, 100);
 
   async createAndSendOffer(options?: RTCOfferOptions) {
@@ -78,11 +97,141 @@ export default class PCTransport {
     // actually negotiate
     log.debug('starting to negotiate');
     const offer = await this.pc.createOffer(options);
-    await this.pc.setLocalDescription(offer);
+
+    const sdpParsed = parse(offer.sdp ?? '');
+    sdpParsed.media.forEach((media) => {
+      if (media.type === 'audio') {
+        ensureAudioNack(media);
+      } else if (media.type === 'video') {
+        // mung sdp for codec bitrate setting that can't apply by sendEncoding
+        this.trackBitrates.some((trackbr): boolean => {
+          if (!media.msid || !media.msid.includes(trackbr.sid)) {
+            return false;
+          }
+
+          let codecPayload = 0;
+          media.rtp.some((rtp): boolean => {
+            if (rtp.codec.toUpperCase() === trackbr.codec.toUpperCase()) {
+              codecPayload = rtp.payload;
+              return true;
+            }
+            return false;
+          });
+
+          // add x-google-max-bitrate to fmtp line if not exist
+          if (codecPayload > 0) {
+            if (
+              !media.fmtp.some((fmtp): boolean => {
+                if (fmtp.payload === codecPayload) {
+                  if (!fmtp.config.includes('x-google-max-bitrate')) {
+                    fmtp.config += `;x-google-max-bitrate=${trackbr.maxbr}`;
+                  }
+                  return true;
+                }
+                return false;
+              })
+            ) {
+              media.fmtp.push({
+                payload: codecPayload,
+                config: `x-google-max-bitrate=${trackbr.maxbr}`,
+              });
+            }
+          }
+
+          return true;
+        });
+      }
+    });
+
+    this.trackBitrates = [];
+
+    await this.setMungedLocalDescription(offer, write(sdpParsed));
     this.onOffer(offer);
+  }
+
+  async createAndSetAnswer(): Promise<RTCSessionDescriptionInit> {
+    const answer = await this.pc.createAnswer();
+    const sdpParsed = parse(answer.sdp ?? '');
+    sdpParsed.media.forEach((media) => {
+      if (media.type === 'audio') {
+        ensureAudioNack(media);
+      }
+    });
+    await this.setMungedLocalDescription(answer, write(sdpParsed));
+    return answer;
+  }
+
+  setTrackCodecBitrate(sid: string, codec: string, maxbr: number) {
+    this.trackBitrates.push({
+      sid,
+      codec,
+      maxbr,
+    });
   }
 
   close() {
     this.pc.close();
+  }
+
+  private async setMungedLocalDescription(sd: RTCSessionDescriptionInit, munged: string) {
+    const originalSdp = sd.sdp;
+    sd.sdp = munged;
+    try {
+      log.debug('setting munged local description');
+      await this.pc.setLocalDescription(sd);
+      return;
+    } catch (e) {
+      log.warn(`not able to set ${sd.type}, falling back to unmodified sdp`, {
+        error: e,
+      });
+      sd.sdp = originalSdp;
+    }
+
+    try {
+      await this.pc.setLocalDescription(sd);
+    } catch (e) {
+      // this error cannot always be caught.
+      // If the local description has a setCodecPreferences error, this error will be uncaught
+      let msg = 'unknown error';
+      if (e instanceof Error) {
+        msg = e.message;
+      } else if (typeof e === 'string') {
+        msg = e;
+      }
+      throw new NegotiationError(msg);
+    }
+  }
+}
+
+function ensureAudioNack(
+  media: {
+    type: string;
+    port: number;
+    protocol: string;
+    payloads?: string | undefined;
+  } & MediaDescription,
+) {
+  // found opus codec to add nack fb
+  let opusPayload = 0;
+  media.rtp.some((rtp): boolean => {
+    if (rtp.codec === 'opus') {
+      opusPayload = rtp.payload;
+      return true;
+    }
+    return false;
+  });
+
+  // add nack rtcpfb if not exist
+  if (opusPayload > 0) {
+    if (!media.rtcpFb) {
+      media.rtcpFb = [];
+    }
+
+    if (!media.rtcpFb.some((fb) => fb.payload === opusPayload && fb.type === 'nack')) {
+      media.rtcpFb.push({
+        payload: opusPayload,
+        type: 'nack',
+      });
+    }
   }
 }

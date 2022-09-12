@@ -58,6 +58,16 @@ type FakeLocalMediaTrack struct {
 	getConnectionScoreReturnsOnCall map[int]struct {
 		result1 float32
 	}
+	GetNumSubscribersStub        func() int
+	getNumSubscribersMutex       sync.RWMutex
+	getNumSubscribersArgsForCall []struct {
+	}
+	getNumSubscribersReturns struct {
+		result1 int
+	}
+	getNumSubscribersReturnsOnCall map[int]struct {
+		result1 int
+	}
 	GetQualityForDimensionStub        func(uint32, uint32) livekit.VideoQuality
 	getQualityForDimensionMutex       sync.RWMutex
 	getQualityForDimensionArgsForCall []struct {
@@ -90,6 +100,11 @@ type FakeLocalMediaTrack struct {
 	}
 	iDReturnsOnCall map[int]struct {
 		result1 livekit.TrackID
+	}
+	InitiateCloseStub        func(bool)
+	initiateCloseMutex       sync.RWMutex
+	initiateCloseArgsForCall []struct {
+		arg1 bool
 	}
 	IsMutedStub        func() bool
 	isMutedMutex       sync.RWMutex
@@ -174,6 +189,16 @@ type FakeLocalMediaTrack struct {
 	publisherIdentityReturnsOnCall map[int]struct {
 		result1 livekit.ParticipantIdentity
 	}
+	PublisherVersionStub        func() uint32
+	publisherVersionMutex       sync.RWMutex
+	publisherVersionArgsForCall []struct {
+	}
+	publisherVersionReturns struct {
+		result1 uint32
+	}
+	publisherVersionReturnsOnCall map[int]struct {
+		result1 uint32
+	}
 	ReceiversStub        func() []sfu.TrackReceiver
 	receiversMutex       sync.RWMutex
 	receiversArgsForCall []struct {
@@ -183,10 +208,6 @@ type FakeLocalMediaTrack struct {
 	}
 	receiversReturnsOnCall map[int]struct {
 		result1 []sfu.TrackReceiver
-	}
-	RemoveAllSubscribersStub        func()
-	removeAllSubscribersMutex       sync.RWMutex
-	removeAllSubscribersArgsForCall []struct {
 	}
 	RemoveSubscriberStub        func(livekit.ParticipantID, bool)
 	removeSubscriberMutex       sync.RWMutex
@@ -513,6 +534,59 @@ func (fake *FakeLocalMediaTrack) GetConnectionScoreReturnsOnCall(i int, result1 
 	}{result1}
 }
 
+func (fake *FakeLocalMediaTrack) GetNumSubscribers() int {
+	fake.getNumSubscribersMutex.Lock()
+	ret, specificReturn := fake.getNumSubscribersReturnsOnCall[len(fake.getNumSubscribersArgsForCall)]
+	fake.getNumSubscribersArgsForCall = append(fake.getNumSubscribersArgsForCall, struct {
+	}{})
+	stub := fake.GetNumSubscribersStub
+	fakeReturns := fake.getNumSubscribersReturns
+	fake.recordInvocation("GetNumSubscribers", []interface{}{})
+	fake.getNumSubscribersMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalMediaTrack) GetNumSubscribersCallCount() int {
+	fake.getNumSubscribersMutex.RLock()
+	defer fake.getNumSubscribersMutex.RUnlock()
+	return len(fake.getNumSubscribersArgsForCall)
+}
+
+func (fake *FakeLocalMediaTrack) GetNumSubscribersCalls(stub func() int) {
+	fake.getNumSubscribersMutex.Lock()
+	defer fake.getNumSubscribersMutex.Unlock()
+	fake.GetNumSubscribersStub = stub
+}
+
+func (fake *FakeLocalMediaTrack) GetNumSubscribersReturns(result1 int) {
+	fake.getNumSubscribersMutex.Lock()
+	defer fake.getNumSubscribersMutex.Unlock()
+	fake.GetNumSubscribersStub = nil
+	fake.getNumSubscribersReturns = struct {
+		result1 int
+	}{result1}
+}
+
+func (fake *FakeLocalMediaTrack) GetNumSubscribersReturnsOnCall(i int, result1 int) {
+	fake.getNumSubscribersMutex.Lock()
+	defer fake.getNumSubscribersMutex.Unlock()
+	fake.GetNumSubscribersStub = nil
+	if fake.getNumSubscribersReturnsOnCall == nil {
+		fake.getNumSubscribersReturnsOnCall = make(map[int]struct {
+			result1 int
+		})
+	}
+	fake.getNumSubscribersReturnsOnCall[i] = struct {
+		result1 int
+	}{result1}
+}
+
 func (fake *FakeLocalMediaTrack) GetQualityForDimension(arg1 uint32, arg2 uint32) livekit.VideoQuality {
 	fake.getQualityForDimensionMutex.Lock()
 	ret, specificReturn := fake.getQualityForDimensionReturnsOnCall[len(fake.getQualityForDimensionArgsForCall)]
@@ -687,6 +761,38 @@ func (fake *FakeLocalMediaTrack) IDReturnsOnCall(i int, result1 livekit.TrackID)
 	fake.iDReturnsOnCall[i] = struct {
 		result1 livekit.TrackID
 	}{result1}
+}
+
+func (fake *FakeLocalMediaTrack) InitiateClose(arg1 bool) {
+	fake.initiateCloseMutex.Lock()
+	fake.initiateCloseArgsForCall = append(fake.initiateCloseArgsForCall, struct {
+		arg1 bool
+	}{arg1})
+	stub := fake.InitiateCloseStub
+	fake.recordInvocation("InitiateClose", []interface{}{arg1})
+	fake.initiateCloseMutex.Unlock()
+	if stub != nil {
+		fake.InitiateCloseStub(arg1)
+	}
+}
+
+func (fake *FakeLocalMediaTrack) InitiateCloseCallCount() int {
+	fake.initiateCloseMutex.RLock()
+	defer fake.initiateCloseMutex.RUnlock()
+	return len(fake.initiateCloseArgsForCall)
+}
+
+func (fake *FakeLocalMediaTrack) InitiateCloseCalls(stub func(bool)) {
+	fake.initiateCloseMutex.Lock()
+	defer fake.initiateCloseMutex.Unlock()
+	fake.InitiateCloseStub = stub
+}
+
+func (fake *FakeLocalMediaTrack) InitiateCloseArgsForCall(i int) bool {
+	fake.initiateCloseMutex.RLock()
+	defer fake.initiateCloseMutex.RUnlock()
+	argsForCall := fake.initiateCloseArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeLocalMediaTrack) IsMuted() bool {
@@ -1139,6 +1245,59 @@ func (fake *FakeLocalMediaTrack) PublisherIdentityReturnsOnCall(i int, result1 l
 	}{result1}
 }
 
+func (fake *FakeLocalMediaTrack) PublisherVersion() uint32 {
+	fake.publisherVersionMutex.Lock()
+	ret, specificReturn := fake.publisherVersionReturnsOnCall[len(fake.publisherVersionArgsForCall)]
+	fake.publisherVersionArgsForCall = append(fake.publisherVersionArgsForCall, struct {
+	}{})
+	stub := fake.PublisherVersionStub
+	fakeReturns := fake.publisherVersionReturns
+	fake.recordInvocation("PublisherVersion", []interface{}{})
+	fake.publisherVersionMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalMediaTrack) PublisherVersionCallCount() int {
+	fake.publisherVersionMutex.RLock()
+	defer fake.publisherVersionMutex.RUnlock()
+	return len(fake.publisherVersionArgsForCall)
+}
+
+func (fake *FakeLocalMediaTrack) PublisherVersionCalls(stub func() uint32) {
+	fake.publisherVersionMutex.Lock()
+	defer fake.publisherVersionMutex.Unlock()
+	fake.PublisherVersionStub = stub
+}
+
+func (fake *FakeLocalMediaTrack) PublisherVersionReturns(result1 uint32) {
+	fake.publisherVersionMutex.Lock()
+	defer fake.publisherVersionMutex.Unlock()
+	fake.PublisherVersionStub = nil
+	fake.publisherVersionReturns = struct {
+		result1 uint32
+	}{result1}
+}
+
+func (fake *FakeLocalMediaTrack) PublisherVersionReturnsOnCall(i int, result1 uint32) {
+	fake.publisherVersionMutex.Lock()
+	defer fake.publisherVersionMutex.Unlock()
+	fake.PublisherVersionStub = nil
+	if fake.publisherVersionReturnsOnCall == nil {
+		fake.publisherVersionReturnsOnCall = make(map[int]struct {
+			result1 uint32
+		})
+	}
+	fake.publisherVersionReturnsOnCall[i] = struct {
+		result1 uint32
+	}{result1}
+}
+
 func (fake *FakeLocalMediaTrack) Receivers() []sfu.TrackReceiver {
 	fake.receiversMutex.Lock()
 	ret, specificReturn := fake.receiversReturnsOnCall[len(fake.receiversArgsForCall)]
@@ -1190,30 +1349,6 @@ func (fake *FakeLocalMediaTrack) ReceiversReturnsOnCall(i int, result1 []sfu.Tra
 	fake.receiversReturnsOnCall[i] = struct {
 		result1 []sfu.TrackReceiver
 	}{result1}
-}
-
-func (fake *FakeLocalMediaTrack) RemoveAllSubscribers() {
-	fake.removeAllSubscribersMutex.Lock()
-	fake.removeAllSubscribersArgsForCall = append(fake.removeAllSubscribersArgsForCall, struct {
-	}{})
-	stub := fake.RemoveAllSubscribersStub
-	fake.recordInvocation("RemoveAllSubscribers", []interface{}{})
-	fake.removeAllSubscribersMutex.Unlock()
-	if stub != nil {
-		fake.RemoveAllSubscribersStub()
-	}
-}
-
-func (fake *FakeLocalMediaTrack) RemoveAllSubscribersCallCount() int {
-	fake.removeAllSubscribersMutex.RLock()
-	defer fake.removeAllSubscribersMutex.RUnlock()
-	return len(fake.removeAllSubscribersArgsForCall)
-}
-
-func (fake *FakeLocalMediaTrack) RemoveAllSubscribersCalls(stub func()) {
-	fake.removeAllSubscribersMutex.Lock()
-	defer fake.removeAllSubscribersMutex.Unlock()
-	fake.RemoveAllSubscribersStub = stub
 }
 
 func (fake *FakeLocalMediaTrack) RemoveSubscriber(arg1 livekit.ParticipantID, arg2 bool) {
@@ -1612,12 +1747,16 @@ func (fake *FakeLocalMediaTrack) Invocations() map[string][][]interface{} {
 	defer fake.getAudioLevelMutex.RUnlock()
 	fake.getConnectionScoreMutex.RLock()
 	defer fake.getConnectionScoreMutex.RUnlock()
+	fake.getNumSubscribersMutex.RLock()
+	defer fake.getNumSubscribersMutex.RUnlock()
 	fake.getQualityForDimensionMutex.RLock()
 	defer fake.getQualityForDimensionMutex.RUnlock()
 	fake.hasSdpCidMutex.RLock()
 	defer fake.hasSdpCidMutex.RUnlock()
 	fake.iDMutex.RLock()
 	defer fake.iDMutex.RUnlock()
+	fake.initiateCloseMutex.RLock()
+	defer fake.initiateCloseMutex.RUnlock()
 	fake.isMutedMutex.RLock()
 	defer fake.isMutedMutex.RUnlock()
 	fake.isSimulcastMutex.RLock()
@@ -1636,10 +1775,10 @@ func (fake *FakeLocalMediaTrack) Invocations() map[string][][]interface{} {
 	defer fake.publisherIDMutex.RUnlock()
 	fake.publisherIdentityMutex.RLock()
 	defer fake.publisherIdentityMutex.RUnlock()
+	fake.publisherVersionMutex.RLock()
+	defer fake.publisherVersionMutex.RUnlock()
 	fake.receiversMutex.RLock()
 	defer fake.receiversMutex.RUnlock()
-	fake.removeAllSubscribersMutex.RLock()
-	defer fake.removeAllSubscribersMutex.RUnlock()
 	fake.removeSubscriberMutex.RLock()
 	defer fake.removeSubscriberMutex.RUnlock()
 	fake.restartMutex.RLock()

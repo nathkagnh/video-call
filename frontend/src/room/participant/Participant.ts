@@ -7,11 +7,11 @@ import {
   ParticipantPermission,
 } from '../../proto/livekit_models';
 import { ParticipantEvent, TrackEvent } from '../events';
-import LocalTrackPublication from '../track/LocalTrackPublication';
-import RemoteTrackPublication from '../track/RemoteTrackPublication';
+import type LocalTrackPublication from '../track/LocalTrackPublication';
+import type RemoteTrackPublication from '../track/RemoteTrackPublication';
 import { Track } from '../track/Track';
-import { TrackPublication } from '../track/TrackPublication';
-import { RemoteTrack } from '../track/types';
+import type { TrackPublication } from '../track/TrackPublication';
+import type { RemoteTrack } from '../track/types';
 import log from '../../logger';
 
 export enum ConnectionQuality {
@@ -69,10 +69,12 @@ export default class Participant extends (EventEmitter as new () => TypedEmitter
   private _connectionQuality: ConnectionQuality = ConnectionQuality.Unknown;
 
   /** @internal */
-  constructor(sid: string, identity: string) {
+  constructor(sid: string, identity: string, name?: string, metadata?: string) {
     super();
     this.sid = sid;
     this.identity = identity;
+    this.name = name;
+    this.metadata = metadata;
     this.audioTracks = new Map();
     this.videoTracks = new Map();
     this.tracks = new Map();

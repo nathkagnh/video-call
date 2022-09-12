@@ -2,9 +2,10 @@ import { LogLevel, setLogExtension, setLogLevel } from './logger';
 import { DataPacket_Kind, VideoQuality, DisconnectReason } from './proto/livekit_models';
 import LocalParticipant from './room/participant/LocalParticipant';
 import Participant, { ConnectionQuality } from './room/participant/Participant';
-import { ParticipantTrackPermission } from './room/participant/ParticipantTrackPermission';
+import type { ParticipantTrackPermission } from './room/participant/ParticipantTrackPermission';
 import RemoteParticipant from './room/participant/RemoteParticipant';
 import Room, { ConnectionState, RoomState } from './room/Room';
+import DefaultReconnectPolicy from './room/DefaultReconnectPolicy';
 import LocalAudioTrack from './room/track/LocalAudioTrack';
 import LocalTrack from './room/track/LocalTrack';
 import LocalTrackPublication from './room/track/LocalTrackPublication';
@@ -14,7 +15,13 @@ import RemoteTrack from './room/track/RemoteTrack';
 import RemoteTrackPublication from './room/track/RemoteTrackPublication';
 import RemoteVideoTrack, { ElementInfo } from './room/track/RemoteVideoTrack';
 import { TrackPublication } from './room/track/TrackPublication';
-import { getEmptyAudioStreamTrack, getEmptyVideoStreamTrack } from './room/utils';
+import {
+  getEmptyAudioStreamTrack,
+  getEmptyVideoStreamTrack,
+  isBrowserSupported,
+  supportsAdaptiveStream,
+  supportsDynacast,
+} from './room/utils';
 
 export * from './options';
 export * from './room/errors';
@@ -29,6 +36,9 @@ export {
   setLogExtension,
   getEmptyAudioStreamTrack,
   getEmptyVideoStreamTrack,
+  isBrowserSupported,
+  supportsAdaptiveStream,
+  supportsDynacast,
   LogLevel,
   Room,
   ConnectionState,
@@ -51,4 +61,5 @@ export {
   VideoQuality,
   ConnectionQuality,
   ElementInfo,
+  DefaultReconnectPolicy,
 };

@@ -1,3 +1,4 @@
+import UAParser from 'ua-parser-js';
 import { ClientInfo, ClientInfo_SDK } from '../proto/livekit_models';
 import { protocolVersion, version } from '../version';
 
@@ -13,6 +14,56 @@ export function unpackStreamId(packed: string): string[] {
 
 export async function sleep(duration: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, duration));
+}
+
+/** @internal */
+export function supportsTransceiver() {
+  return 'addTransceiver' in RTCPeerConnection.prototype;
+}
+
+/** @internal */
+export function supportsAddTrack() {
+  return 'addTrack' in RTCPeerConnection.prototype;
+}
+
+export function supportsAdaptiveStream() {
+  return typeof ResizeObserver !== undefined && typeof IntersectionObserver !== undefined;
+}
+
+export function supportsDynacast() {
+  return supportsTransceiver();
+}
+
+const setCodecPreferencesVersions: { [key: string]: string } = {
+  Chrome: '100',
+  Chromium: '100',
+  Safari: '15',
+  Firefox: '100',
+  Edge: '100',
+  Brave: '1.40',
+};
+
+export function supportsSetCodecPreferences(transceiver: RTCRtpTransceiver): boolean {
+  if (!isWeb()) {
+    return false;
+  }
+  if (!('setCodecPreferences' in transceiver)) {
+    return false;
+  }
+  const uap = UAParser();
+  if (!uap.browser.name || !uap.browser.version) {
+    // version is required
+    return false;
+  }
+  const v = setCodecPreferencesVersions[uap.browser.name];
+  if (v) {
+    return compareVersions(uap.browser.version, v) >= 0;
+  }
+  return false;
+}
+
+export function isBrowserSupported() {
+  return supportsTransceiver() || supportsAddTrack();
 }
 
 export function isFireFox(): boolean {
@@ -32,6 +83,19 @@ export function isMobile(): boolean {
 
 export function isWeb(): boolean {
   return typeof document !== 'undefined';
+}
+
+export function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.');
+  const parts2 = v2.split('.');
+  const k = Math.min(v1.length, v2.length);
+  for (let i = 0; i < k; ++i) {
+    const p1 = parseInt(parts1[i], 10);
+    const p2 = parseInt(parts2[i], 10);
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return parts1.length == parts2.length ? 0 : parts1.length < parts2.length ? -1 : 1;
 }
 
 function roDispatchCallback(entries: ResizeObserverEntry[]) {
@@ -122,10 +186,12 @@ export class Future<T> {
 
   reject!: (e: any) => void;
 
-  constructor() {
-    this.promise = new Promise<T>((resolve, reject) => {
-      this.resolve = resolve;
-      this.reject = reject;
-    });
+  constructor(promise?: Promise<T>) {
+    this.promise =
+      promise ??
+      new Promise<T>((resolve, reject) => {
+        this.resolve = resolve;
+        this.reject = reject;
+      });
   }
 }

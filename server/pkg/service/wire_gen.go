@@ -17,9 +17,9 @@ import (
 	"github.com/livekit/livekit-server/pkg/telemetry"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/egress"
+	"github.com/livekit/protocol/ingress"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-	"github.com/livekit/protocol/utils"
 	"github.com/livekit/protocol/webhook"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -50,6 +50,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	}
 	nodeID := getNodeID(currentNode)
 	rpcClient := egress.NewRedisRPCClient(nodeID, client)
+	egressStore := getEgressStore(objectStore)
 	keyProvider, err := createKeyProvider(conf)
 	if err != nil {
 		return nil, err
@@ -60,9 +61,10 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	}
 	analyticsService := telemetry.NewAnalyticsService(conf, currentNode)
 	telemetryService := telemetry.NewTelemetryService(notifier, analyticsService)
-	egressService := NewEgressService(rpcClient, objectStore, roomService, telemetryService)
-	messageBus := createMessageBus(client)
-	recordingService := NewRecordingService(messageBus, telemetryService)
+	egressService := NewEgressService(rpcClient, objectStore, egressStore, roomService, telemetryService)
+	rpc := ingress.NewRedisRPC(nodeID, client)
+	ingressStore := getIngressStore(objectStore)
+	ingressService := NewIngressService(conf, rpc, ingressStore, roomService, telemetryService)
 	rtcService := NewRTCService(conf, roomAllocator, objectStore, router, currentNode)
 	clientConfigurationManager := createClientConfiguration()
 	roomManager, err := NewLocalRoomManager(conf, objectStore, currentNode, router, telemetryService, clientConfigurationManager)
@@ -74,7 +76,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	if err != nil {
 		return nil, err
 	}
-	livekitServer, err := NewLivekitServer(conf, roomService, egressService, recordingService, rtcService, keyProvider, router, roomManager, server, currentNode)
+	livekitServer, err := NewLivekitServer(conf, roomService, egressService, ingressService, rtcService, keyProvider, router, roomManager, server, currentNode)
 	if err != nil {
 		return nil, err
 	}
@@ -151,8 +153,10 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 		}
 	}
 
+	values := make([]interface{}, 0)
+	values = append(values, "sentinel", conf.UseSentinel())
 	if conf.UseSentinel() {
-		logger.Infow("using multi-node routing via redis", "sentinel", true, "addr", conf.Redis.SentinelAddresses, "masterName", conf.Redis.MasterName)
+		values = append(values, "addr", conf.Redis.SentinelAddresses, "masterName", conf.Redis.MasterName)
 		rcOptions := &redis.FailoverOptions{
 			SentinelAddrs:    conf.Redis.SentinelAddresses,
 			SentinelUsername: conf.Redis.SentinelUsername,
@@ -165,7 +169,7 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 		}
 		rc = redis.NewFailoverClient(rcOptions)
 	} else {
-		logger.Infow("using multi-node routing via redis", "sentinel", false, "addr", conf.Redis.Address)
+		values = append(values, "addr", conf.Redis.Address)
 		rcOptions := &redis.Options{
 			Addr:      conf.Redis.Address,
 			Username:  conf.Redis.Username,
@@ -175,6 +179,7 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 		}
 		rc = redis.NewClient(rcOptions)
 	}
+	logger.Infow("using multi-node routing via redis", values...)
 
 	if err := rc.Ping(context.Background()).Err(); err != nil {
 		err = errors.Wrap(err, "unable to connect to redis")
@@ -184,18 +189,29 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 	return rc, nil
 }
 
-func createMessageBus(rc *redis.Client) utils.MessageBus {
-	if rc == nil {
-		return nil
-	}
-	return utils.NewRedisMessageBus(rc)
-}
-
 func createStore(rc *redis.Client) ObjectStore {
 	if rc != nil {
 		return NewRedisStore(rc)
 	}
 	return NewLocalStore()
+}
+
+func getEgressStore(s ObjectStore) EgressStore {
+	switch store := s.(type) {
+	case *RedisStore:
+		return store
+	default:
+		return nil
+	}
+}
+
+func getIngressStore(s ObjectStore) IngressStore {
+	switch store := s.(type) {
+	case *RedisStore:
+		return store
+	default:
+		return nil
+	}
 }
 
 func createClientConfiguration() clientconfiguration.ClientConfigurationManager {

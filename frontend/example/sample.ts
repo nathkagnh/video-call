@@ -21,8 +21,8 @@ import {
   VideoCaptureOptions,
   VideoCodec,
   VideoPresets,
-  VideoQuality
-} from '../src/index'
+  VideoQuality,
+} from '../src/index';
 
 const $ = (id: string) => document.getElementById(id);
 
@@ -57,7 +57,6 @@ const appActions = {
     const dynacast = (<HTMLInputElement>$('dynacast')).checked;
     const forceTURN = (<HTMLInputElement>$('force-turn')).checked;
     const adaptiveStream = (<HTMLInputElement>$('adaptive-stream')).checked;
-    const publishOnly = (<HTMLInputElement>$('publish-only')).checked;
     const shouldPublish = (<HTMLInputElement>$('publish-option')).checked;
     const preferredCodec = (<HTMLSelectElement>$('preferred-codec')).value as VideoCodec;
 
@@ -78,8 +77,7 @@ const appActions = {
     };
 
     const connectOpts: RoomConnectOptions = {
-      autoSubscribe: !publishOnly,
-      publishOnly: publishOnly ? 'publish_only' : undefined,
+      autoSubscribe: true,
     };
     if (forceTURN) {
       connectOpts.rtcConfig = {
@@ -99,6 +97,7 @@ const appActions = {
     shouldPublish?: boolean,
   ): Promise<Room | undefined> => {
     const room = new Room(roomOptions);
+
     room
       .on(RoomEvent.ParticipantConnected, participantConnected)
       .on(RoomEvent.ParticipantDisconnected, participantDisconnected)
@@ -370,7 +369,7 @@ function participantDisconnected(participant: RemoteParticipant) {
 
 function handleRoomDisconnect(reason?: DisconnectReason) {
   if (!currentRoom) return;
-  appendLog('disconnected from room', {reason});
+  appendLog('disconnected from room', { reason });
   setButtonsForState(false);
   renderParticipant(currentRoom.localParticipant, true);
   currentRoom.participants.forEach((p) => {

@@ -65,17 +65,24 @@ type ParticipantCloseReason int
 const (
 	ParticipantCloseReasonClientRequestLeave ParticipantCloseReason = iota
 	ParticipantCloseReasonRoomManagerStop
+	ParticipantCloseReasonRoomClose
+	ParticipantCloseReasonVerifyFailed
 	ParticipantCloseReasonJoinFailed
 	ParticipantCloseReasonJoinTimeout
 	ParticipantCloseReasonRTCSessionFinish
 	ParticipantCloseReasonStateDisconnected
 	ParticipantCloseReasonPeerConnectionDisconnected
 	ParticipantCloseReasonDuplicateIdentity
+	ParticipantCloseReasonMigrationComplete
+	ParticipantCloseReasonStale
 	ParticipantCloseReasonServiceRequestRemoveParticipant
 	ParticipantCloseReasonServiceRequestDeleteRoom
 	ParticipantCloseReasonSimulateMigration
 	ParticipantCloseReasonSimulateNodeFailure
 	ParticipantCloseReasonSimulateServerLeave
+	ParticipantCloseReasonNegotiateFailed
+	ParticipantCloseReasonMigrationRequested
+	ParticipantCloseReasonOvercommitted
 )
 
 func (p ParticipantCloseReason) String() string {
@@ -84,6 +91,10 @@ func (p ParticipantCloseReason) String() string {
 		return "CLIENT_REQUEST_LEAVE"
 	case ParticipantCloseReasonRoomManagerStop:
 		return "ROOM_MANAGER_STOP"
+	case ParticipantCloseReasonRoomClose:
+		return "ROOM_CLOSE"
+	case ParticipantCloseReasonVerifyFailed:
+		return "VERIFY_FAILED"
 	case ParticipantCloseReasonJoinFailed:
 		return "JOIN_FAILED"
 	case ParticipantCloseReasonJoinTimeout:
@@ -96,6 +107,10 @@ func (p ParticipantCloseReason) String() string {
 		return "PEER_CONNECTION_DISCONNECTED"
 	case ParticipantCloseReasonDuplicateIdentity:
 		return "DUPLICATE_IDENTITY"
+	case ParticipantCloseReasonMigrationComplete:
+		return "MIGRATION_COMPLETE"
+	case ParticipantCloseReasonStale:
+		return "STALE"
 	case ParticipantCloseReasonServiceRequestRemoveParticipant:
 		return "SERVICE_REQUEST_REMOVE_PARTICIPANT"
 	case ParticipantCloseReasonServiceRequestDeleteRoom:
@@ -106,8 +121,47 @@ func (p ParticipantCloseReason) String() string {
 		return "SIMULATE_NODE_FAILURE"
 	case ParticipantCloseReasonSimulateServerLeave:
 		return "SIMULATE_SERVER_LEAVE"
+	case ParticipantCloseReasonNegotiateFailed:
+		return "NEGOTIATE_FAILED"
+	case ParticipantCloseReasonOvercommitted:
+		return "OVERCOMMITTED"
+	case ParticipantCloseReasonMigrationRequested:
+		return "MIGRATION_REQUESTED"
 	default:
 		return fmt.Sprintf("%d", int(p))
+	}
+}
+
+func (p ParticipantCloseReason) ToDisconnectReason() livekit.DisconnectReason {
+	switch p {
+	case ParticipantCloseReasonClientRequestLeave:
+		return livekit.DisconnectReason_CLIENT_INITIATED
+	case ParticipantCloseReasonRoomManagerStop:
+		return livekit.DisconnectReason_SERVER_SHUTDOWN
+	case ParticipantCloseReasonVerifyFailed, ParticipantCloseReasonJoinFailed, ParticipantCloseReasonJoinTimeout:
+		// expected to be connected but is not
+		return livekit.DisconnectReason_JOIN_FAILURE
+	case ParticipantCloseReasonPeerConnectionDisconnected:
+		return livekit.DisconnectReason_STATE_MISMATCH
+	case ParticipantCloseReasonDuplicateIdentity, ParticipantCloseReasonMigrationComplete, ParticipantCloseReasonStale:
+		return livekit.DisconnectReason_DUPLICATE_IDENTITY
+	case ParticipantCloseReasonServiceRequestRemoveParticipant:
+		return livekit.DisconnectReason_PARTICIPANT_REMOVED
+	case ParticipantCloseReasonServiceRequestDeleteRoom:
+		return livekit.DisconnectReason_ROOM_DELETED
+	case ParticipantCloseReasonSimulateMigration:
+		return livekit.DisconnectReason_DUPLICATE_IDENTITY
+	case ParticipantCloseReasonSimulateNodeFailure:
+		return livekit.DisconnectReason_SERVER_SHUTDOWN
+	case ParticipantCloseReasonSimulateServerLeave:
+		return livekit.DisconnectReason_SERVER_SHUTDOWN
+	case ParticipantCloseReasonOvercommitted:
+		return livekit.DisconnectReason_SERVER_SHUTDOWN
+	case ParticipantCloseReasonNegotiateFailed:
+		return livekit.DisconnectReason_STATE_MISMATCH
+	default:
+		// the other types will map to unknown reason
+		return livekit.DisconnectReason_UNKNOWN_REASON
 	}
 }
 
@@ -135,43 +189,49 @@ type Participant interface {
 	Start()
 	Close(sendLeave bool, reason ParticipantCloseReason) error
 
-	SubscriptionPermission() *livekit.SubscriptionPermission
+	SubscriptionPermission() (*livekit.SubscriptionPermission, *livekit.TimedVersion)
 
 	// updates from remotes
 	UpdateSubscriptionPermission(
 		subscriptionPermission *livekit.SubscriptionPermission,
+		timedVersion *livekit.TimedVersion,
 		resolverByIdentity func(participantIdentity livekit.ParticipantIdentity) LocalParticipant,
 		resolverBySid func(participantID livekit.ParticipantID) LocalParticipant,
 	) error
 	UpdateVideoLayers(updateVideoLayers *livekit.UpdateVideoLayers) error
-	UpdateSubscribedQuality(nodeID livekit.NodeID, trackID livekit.TrackID, maxQualities []SubscribedCodecQuality) error
-	UpdateMediaLoss(nodeID livekit.NodeID, trackID livekit.TrackID, fractionalLoss uint32) error
 
 	DebugInfo() map[string]interface{}
 }
 
+type PreferCandidateType int
+
+const (
+	PreferNone PreferCandidateType = iota
+	PreferTcp
+	PreferTls
+)
+
 type IceConfig struct {
-	PreferSubTcp bool
-	PreferPubTcp bool
+	PreferSub PreferCandidateType
+	PreferPub PreferCandidateType
 }
 
 //counterfeiter:generate . LocalParticipant
 type LocalParticipant interface {
 	Participant
 
+	// getters
 	GetLogger() logger.Logger
 	GetAdaptiveStream() bool
-
 	ProtocolVersion() ProtocolVersion
-
 	ConnectedAt() time.Time
-
 	State() livekit.ParticipantInfo_State
 	IsReady() bool
 	SubscriberAsPrimary() bool
+	GetClientConfiguration() *livekit.ClientConfiguration
 
-	GetResponseSink() routing.MessageSink
 	SetResponseSink(sink routing.MessageSink)
+	CloseSignalConnection()
 
 	// permissions
 	ClaimGrants() *auth.ClaimGrants
@@ -180,18 +240,22 @@ type LocalParticipant interface {
 	CanSubscribe() bool
 	CanPublishData() bool
 
-	AddICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error
-
-	HandleOffer(sdp webrtc.SessionDescription) (answer webrtc.SessionDescription, err error)
-
+	// PeerConnection
+	AddICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget)
+	HandleOffer(sdp webrtc.SessionDescription)
 	AddTrack(req *livekit.AddTrackRequest)
 	SetTrackMuted(trackID livekit.TrackID, muted bool, fromAdmin bool)
 
-	SubscriberMediaEngine() *webrtc.MediaEngine
-	SubscriberPC() *webrtc.PeerConnection
-	HandleAnswer(sdp webrtc.SessionDescription) error
+	HandleAnswer(sdp webrtc.SessionDescription)
 	Negotiate(force bool)
-	ICERestart(iceConfig *IceConfig) error
+	AddNegotiationPending(publisherID livekit.ParticipantID)
+	IsNegotiationPending(publisherID livekit.ParticipantID) bool
+	ICERestart(iceConfig *IceConfig)
+	AddTrackToSubscriber(trackLocal webrtc.TrackLocal) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
+	AddTransceiverFromTrackToSubscriber(trackLocal webrtc.TrackLocal) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
+	RemoveTrackFromSubscriber(sender *webrtc.RTPSender) error
+
+	// subscriptions
 	AddSubscribedTrack(st SubscribedTrack)
 	RemoveSubscribedTrack(st SubscribedTrack)
 	UpdateSubscribedTrackSettings(trackID livekit.TrackID, settings *livekit.UpdateTrackSettings) error
@@ -206,7 +270,7 @@ type LocalParticipant interface {
 	GetConnectionQuality() *livekit.ConnectionQualityInfo
 
 	// server sent messages
-	SendJoinResponse(info *livekit.Room, otherParticipants []*livekit.ParticipantInfo, iceServers []*livekit.ICEServer, region string) error
+	SendJoinResponse(joinResponse *livekit.JoinResponse) error
 	SendParticipantUpdate(participants []*livekit.ParticipantInfo) error
 	SendSpeakerUpdate(speakers []*livekit.SpeakerInfo) error
 	SendDataPacket(packet *livekit.DataPacket) error
@@ -225,8 +289,8 @@ type LocalParticipant interface {
 	OnParticipantUpdate(callback func(LocalParticipant))
 	OnDataPacket(callback func(LocalParticipant, *livekit.DataPacket))
 	OnSubscribedTo(callback func(LocalParticipant, livekit.ParticipantID))
-	OnClose(_callback func(LocalParticipant, map[livekit.TrackID]livekit.ParticipantID))
-	OnClaimsChanged(_callback func(LocalParticipant))
+	OnClose(callback func(LocalParticipant, map[livekit.TrackID]livekit.ParticipantID))
+	OnClaimsChanged(callback func(LocalParticipant))
 
 	// session migration
 	SetMigrateState(s MigrateState)
@@ -234,9 +298,25 @@ type LocalParticipant interface {
 	SetMigrateInfo(previousAnswer *webrtc.SessionDescription, mediaTracks []*livekit.TrackPublishedResponse, dataChannels []*livekit.DataChannelInfo)
 
 	UpdateRTT(rtt uint32)
+
+	CacheDownTrack(trackID livekit.TrackID, rtpTransceiver *webrtc.RTPTransceiver, forwarderState sfu.ForwarderState)
+	UncacheDownTrack(rtpTransceiver *webrtc.RTPTransceiver)
+	GetCachedDownTrack(trackID livekit.TrackID) (*webrtc.RTPTransceiver, sfu.ForwarderState)
+
+	EnqueueSubscribeTrack(trackID livekit.TrackID, f func(sub LocalParticipant) error)
+	EnqueueUnsubscribeTrack(trackID livekit.TrackID, willBeResumed bool, f func(subscriberID livekit.ParticipantID, willBeResumed bool) error)
+	ProcessSubscriptionRequestsQueue(trackID livekit.TrackID)
+	ClearInProgressAndProcessSubscriptionRequestsQueue(trackID livekit.TrackID)
+
+	SetICEConfig(iceConfig IceConfig)
+	OnICEConfigChanged(callback func(participant LocalParticipant, iceConfig IceConfig))
+
+	UpdateSubscribedQuality(nodeID livekit.NodeID, trackID livekit.TrackID, maxQualities []SubscribedCodecQuality) error
+	UpdateMediaLoss(nodeID livekit.NodeID, trackID livekit.TrackID, fractionalLoss uint32) error
 }
 
 // Room is a container of participants, and can provide room-level actions
+//
 //counterfeiter:generate . Room
 type Room interface {
 	Name() livekit.RoomName
@@ -251,6 +331,7 @@ type Room interface {
 }
 
 // MediaTrack represents a media track
+//
 //counterfeiter:generate . MediaTrack
 type MediaTrack interface {
 	ID() livekit.TrackID
@@ -262,6 +343,7 @@ type MediaTrack interface {
 
 	PublisherID() livekit.ParticipantID
 	PublisherIdentity() livekit.ParticipantIdentity
+	PublisherVersion() uint32
 
 	IsMuted() bool
 	SetMuted(muted bool)
@@ -269,24 +351,20 @@ type MediaTrack interface {
 	UpdateVideoLayers(layers []*livekit.VideoLayer)
 	IsSimulcast() bool
 
-	Restart()
-
 	// callbacks
 	AddOnClose(func())
 
 	// subscribers
 	AddSubscriber(participant LocalParticipant) error
-	RemoveSubscriber(participantID livekit.ParticipantID, resume bool)
+	RemoveSubscriber(participantID livekit.ParticipantID, willBeResumed bool)
 	IsSubscriber(subID livekit.ParticipantID) bool
-	RemoveAllSubscribers()
+	InitiateClose(willBeResumed bool)
 	RevokeDisallowedSubscribers(allowedSubscriberIdentities []livekit.ParticipantIdentity) []livekit.ParticipantIdentity
 	GetAllSubscribers() []livekit.ParticipantID
+	GetNumSubscribers() int
 
 	// returns quality information that's appropriate for width & height
 	GetQualityForDimension(width, height uint32) livekit.VideoQuality
-
-	NotifySubscriberNodeMaxQuality(nodeID livekit.NodeID, qualites []SubscribedCodecQuality)
-	NotifySubscriberNodeMediaLoss(nodeID livekit.NodeID, fractionalLoss uint8)
 
 	Receivers() []sfu.TrackReceiver
 }
@@ -295,6 +373,8 @@ type MediaTrack interface {
 type LocalMediaTrack interface {
 	MediaTrack
 
+	Restart()
+
 	SignalCid() string
 	HasSdpCid(cid string) bool
 
@@ -302,17 +382,23 @@ type LocalMediaTrack interface {
 	GetConnectionScore() float32
 
 	SetRTT(rtt uint32)
+
+	NotifySubscriberNodeMaxQuality(nodeID livekit.NodeID, qualities []SubscribedCodecQuality)
+	NotifySubscriberNodeMediaLoss(nodeID livekit.NodeID, fractionalLoss uint8)
 }
 
 // MediaTrack is the main interface representing a track published to the room
+//
 //counterfeiter:generate . SubscribedTrack
 type SubscribedTrack interface {
 	OnBind(f func())
 	ID() livekit.TrackID
 	PublisherID() livekit.ParticipantID
 	PublisherIdentity() livekit.ParticipantIdentity
+	PublisherVersion() uint32
 	SubscriberID() livekit.ParticipantID
 	SubscriberIdentity() livekit.ParticipantIdentity
+	Subscriber() LocalParticipant
 	DownTrack() *sfu.DownTrack
 	MediaTrack() MediaTrack
 	IsMuted() bool

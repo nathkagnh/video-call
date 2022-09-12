@@ -1,11 +1,11 @@
-import { SignalClient } from '../../api/SignalClient';
+import type { SignalClient } from '../../api/SignalClient';
 import log from '../../logger';
 import { VideoLayer, VideoQuality } from '../../proto/livekit_models';
-import { SubscribedCodec, SubscribedQuality } from '../../proto/livekit_rtc';
+import type { SubscribedCodec, SubscribedQuality } from '../../proto/livekit_rtc';
 import { computeBitrate, monitorFrequency, VideoSenderStats } from '../stats';
 import { isFireFox, isMobile, isWeb } from '../utils';
 import LocalTrack from './LocalTrack';
-import { VideoCaptureOptions, VideoCodec } from './options';
+import type { VideoCaptureOptions, VideoCodec } from './options';
 import { Track } from './Track';
 import { constraintsForOptions } from './utils';
 
@@ -27,17 +27,15 @@ export class SimulcastTrackInfo {
 const refreshSubscribedCodecAfterNewCodec = 5000;
 
 export default class LocalVideoTrack extends LocalTrack {
-  /* internal */
+  /* @internal */
   signalClient?: SignalClient;
 
   private prevStats?: Map<string, VideoSenderStats>;
 
   private encodings?: RTCRtpEncodingParameters[];
 
-  private simulcastCodecs: Map<VideoCodec, SimulcastTrackInfo> = new Map<
-    VideoCodec,
-    SimulcastTrackInfo
-  >();
+  /* @internal */
+  simulcastCodecs: Map<VideoCodec, SimulcastTrackInfo> = new Map<VideoCodec, SimulcastTrackInfo>();
 
   private subscribedCodecs?: SubscribedCodec[];
 
@@ -69,19 +67,19 @@ export default class LocalVideoTrack extends LocalTrack {
       this.encodings = params.encodings;
     }
 
-    setTimeout(() => {
+    if (this.monitorInterval) {
+      return;
+    }
+    this.monitorInterval = setInterval(() => {
       this.monitorSender();
     }, monitorFrequency);
   }
 
   stop() {
-    this.sender = undefined;
     this._mediaStreamTrack.getConstraints();
     this.simulcastCodecs.forEach((trackInfo) => {
       trackInfo.mediaStreamTrack.stop();
-      trackInfo.sender = undefined;
     });
-    this.simulcastCodecs.clear();
     super.stop();
   }
 
@@ -273,7 +271,7 @@ export default class LocalVideoTrack extends LocalTrack {
     await setPublishingLayersForSender(this.sender, this.encodings, qualities);
   }
 
-  private monitorSender = async () => {
+  protected monitorSender = async () => {
     if (!this.sender) {
       this._currentBitrate = 0;
       return;
@@ -298,9 +296,6 @@ export default class LocalVideoTrack extends LocalTrack {
     }
 
     this.prevStats = statsMap;
-    setTimeout(() => {
-      this.monitorSender();
-    }, monitorFrequency);
   };
 
   protected async handleAppVisibilityChanged() {

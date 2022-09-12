@@ -46,15 +46,16 @@ export default abstract class RemoteTrack extends Track {
   }
 
   stop() {
+    this.stopMonitor();
     // use `enabled` of track to enable re-use of transceiver
     super.disable();
   }
 
   /* @internal */
   startMonitor() {
-    setTimeout(() => {
-      this.monitorReceiver();
-    }, monitorFrequency);
+    if (!this.monitorInterval) {
+      this.monitorInterval = setInterval(() => this.monitorReceiver(), monitorFrequency);
+    }
   }
 
   protected abstract monitorReceiver(): void;

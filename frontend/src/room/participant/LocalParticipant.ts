@@ -1,5 +1,5 @@
 import log from '../../logger';
-import { RoomOptions } from '../../options';
+import type { RoomOptions } from '../../options';
 import {
   DataPacket,
   DataPacket_Kind,
@@ -16,29 +16,34 @@ import {
 } from '../../proto/livekit_rtc';
 import { TrackInvalidError, UnexpectedConnectionState } from '../errors';
 import { EngineEvent, ParticipantEvent, TrackEvent } from '../events';
-import RTCEngine from '../RTCEngine';
+import type RTCEngine from '../RTCEngine';
 import LocalAudioTrack from '../track/LocalAudioTrack';
 import LocalTrack from '../track/LocalTrack';
 import LocalTrackPublication from '../track/LocalTrackPublication';
 import LocalVideoTrack, { videoLayersFromEncodings } from '../track/LocalVideoTrack';
 import {
   AudioCaptureOptions,
+  BackupVideoCodec,
   CreateLocalTracksOptions,
+  isBackupCodec,
   ScreenShareCaptureOptions,
   ScreenSharePresets,
   TrackPublishOptions,
   VideoCaptureOptions,
-  VideoCodec,
 } from '../track/options';
 import { Track } from '../track/Track';
 import { constraintsForOptions, mergeDefaultOptions } from '../track/utils';
-import { isFireFox } from '../utils';
+import { isFireFox, isWeb } from '../utils';
 import Participant from './Participant';
 import { ParticipantTrackPermission, trackPermissionToProto } from './ParticipantTrackPermission';
-import { computeVideoEncodings, mediaTrackToLocalTrack } from './publishUtils';
+import {
+  computeTrackBackupEncodings,
+  computeVideoEncodings,
+  mediaTrackToLocalTrack,
+} from './publishUtils';
 import RemoteParticipant from './RemoteParticipant';
+import 'webrtc-adapter';
 
-const compatibleCodec = 'vp8';
 export default class LocalParticipant extends Participant {
   audioTracks: Map<string, LocalTrackPublication>;
 
@@ -125,8 +130,9 @@ export default class LocalParticipant extends Participant {
   setCameraEnabled(
     enabled: boolean,
     options?: VideoCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined> {
-    return this.setTrackEnabled(Track.Source.Camera, enabled, options);
+    return this.setTrackEnabled(Track.Source.Camera, enabled, options, publishOptions);
   }
 
   /**
@@ -138,8 +144,9 @@ export default class LocalParticipant extends Participant {
   setMicrophoneEnabled(
     enabled: boolean,
     options?: AudioCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined> {
-    return this.setTrackEnabled(Track.Source.Microphone, enabled, options);
+    return this.setTrackEnabled(Track.Source.Microphone, enabled, options, publishOptions);
   }
 
   /**
@@ -149,8 +156,9 @@ export default class LocalParticipant extends Participant {
   setScreenShareEnabled(
     enabled: boolean,
     options?: ScreenShareCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined> {
-    return this.setTrackEnabled(Track.Source.ScreenShare, enabled, options);
+    return this.setTrackEnabled(Track.Source.ScreenShare, enabled, options, publishOptions);
   }
 
   /** @internal */
@@ -172,21 +180,25 @@ export default class LocalParticipant extends Participant {
     source: Extract<Track.Source, Track.Source.Camera>,
     enabled: boolean,
     options?: VideoCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined>;
   private async setTrackEnabled(
     source: Extract<Track.Source, Track.Source.Microphone>,
     enabled: boolean,
     options?: AudioCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined>;
   private async setTrackEnabled(
     source: Extract<Track.Source, Track.Source.ScreenShare>,
     enabled: boolean,
     options?: ScreenShareCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ): Promise<LocalTrackPublication | undefined>;
   private async setTrackEnabled(
     source: Track.Source,
     enabled: true,
     options?: VideoCaptureOptions | AudioCaptureOptions | ScreenShareCaptureOptions,
+    publishOptions?: TrackPublishOptions,
   ) {
     log.debug('setTrackEnabled', { source, enabled });
     let track = this.getTrack(source);
@@ -224,7 +236,7 @@ export default class LocalParticipant extends Participant {
           }
           const publishPromises: Array<Promise<LocalTrackPublication>> = [];
           for (const localTrack of localTracks) {
-            publishPromises.push(this.publishTrack(localTrack));
+            publishPromises.push(this.publishTrack(localTrack, publishOptions));
           }
           const publishedTracks = await Promise.all(publishPromises);
           // for screen share publications including audio, this will only return the screen share publication, not the screen share audio one
@@ -427,6 +439,23 @@ export default class LocalParticipant extends Participant {
     if (opts.source) {
       track.source = opts.source;
     }
+    const existingTrackOfSource = Array.from(this.tracks.values()).find(
+      (publishedTrack) => track instanceof LocalTrack && publishedTrack.source === track.source,
+    );
+    if (existingTrackOfSource) {
+      try {
+        // throw an Error in order to capture the stack trace
+        throw Error(`publishing a second track with the same source: ${track.source}`);
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          log.warn(e.message, {
+            oldTrack: existingTrackOfSource,
+            newTrack: track,
+            trace: e.stack,
+          });
+        }
+      }
+    }
     if (opts.stopMicTrackOnMute && track instanceof LocalAudioTrack) {
       track.stopOnMute = true;
     }
@@ -468,24 +497,17 @@ export default class LocalParticipant extends Participant {
       req.height = height ?? 0;
       // for svc codecs, disable simulcast and use vp8 for backup codec
       if (track instanceof LocalVideoTrack) {
-        if (opts?.videoCodec === 'vp9' || opts?.videoCodec === 'av1') {
+        if (opts?.videoCodec === 'av1') {
           // set scalabilityMode to 'L3T3' by default
           opts.scalabilityMode = opts.scalabilityMode ?? 'L3T3';
-
-          // add backup codec track
-          const simOpts = { ...opts };
-          simOpts.simulcast = true;
-          simOpts.scalabilityMode = undefined;
-          simEncodings = computeVideoEncodings(
-            track.source === Track.Source.ScreenShare,
-            width,
-            height,
-            simOpts,
-          );
         }
 
-        // set vp8 codec as backup for any other codecs
-        if (opts.videoCodec && opts.videoCodec !== 'vp8') {
+        // set up backup
+        if (opts.videoCodec && opts.backupCodec && opts.videoCodec !== opts.backupCodec.codec) {
+          const simOpts = { ...opts };
+          simOpts.simulcast = true;
+          simEncodings = computeTrackBackupEncodings(track, opts.backupCodec.codec, simOpts);
+
           req.simulcastCodecs = [
             {
               codec: opts.videoCodec,
@@ -493,7 +515,7 @@ export default class LocalParticipant extends Participant {
               enableSimulcastLayers: true,
             },
             {
-              codec: compatibleCodec,
+              codec: opts.backupCodec.codec,
               cid: '',
               enableSimulcastLayers: true,
             },
@@ -530,24 +552,20 @@ export default class LocalParticipant extends Participant {
       throw new UnexpectedConnectionState('publisher is closed');
     }
     log.debug(`publishing ${track.kind} with encodings`, { encodings, trackInfo: ti });
-    const transceiverInit: RTCRtpTransceiverInit = { direction: 'sendonly' };
-    if (encodings) {
-      transceiverInit.sendEncodings = encodings;
-    }
-    // addTransceiver for react-native is async. web is synchronous, but await won't effect it.
-    const transceiver = await this.engine.publisher.pc.addTransceiver(
-      track.mediaStreamTrack,
-      transceiverInit,
-    );
-    if (track.kind === Track.Kind.Video && opts.videoCodec) {
-      this.setPreferredCodec(transceiver, track.kind, opts.videoCodec);
-      track.codec = opts.videoCodec;
+
+    // store RTPSender
+    track.sender = await this.engine.createSender(track, opts, encodings);
+
+    if (track.codec === 'av1' && encodings && encodings[0]?.maxBitrate) {
+      this.engine.publisher.setTrackCodecBitrate(
+        req.cid,
+        track.codec,
+        encodings[0].maxBitrate / 1000,
+      );
     }
 
     this.engine.negotiate();
 
-    // store RTPSender
-    track.sender = transceiver.sender;
     if (track instanceof LocalVideoTrack) {
       track.startMonitor(this.engine.client);
     } else if (track instanceof LocalAudioTrack) {
@@ -566,16 +584,9 @@ export default class LocalParticipant extends Participant {
    */
   async publishAdditionalCodecForTrack(
     track: LocalTrack | MediaStreamTrack,
-    videoCodec: VideoCodec,
+    videoCodec: BackupVideoCodec,
     options?: TrackPublishOptions,
   ) {
-    const opts: TrackPublishOptions = {
-      ...this.roomOptions?.publishDefaults,
-      ...options,
-    };
-    // clear scalabilityMode setting for backup codec
-    opts.scalabilityMode = undefined;
-    opts.videoCodec = videoCodec;
     // is it not published? if so skip
     let existingPublication: LocalTrackPublication | undefined;
     this.tracks.forEach((publication) => {
@@ -594,17 +605,19 @@ export default class LocalParticipant extends Participant {
       throw new TrackInvalidError('track is not a video track');
     }
 
-    const settings = track.mediaStreamTrack.getSettings();
-    const width = settings.width ?? track.dimensions?.width;
-    const height = settings.height ?? track.dimensions?.height;
+    const opts: TrackPublishOptions = {
+      ...this.roomOptions?.publishDefaults,
+      ...options,
+    };
 
-    const encodings = computeVideoEncodings(
-      track.source === Track.Source.ScreenShare,
-      width,
-      height,
-      opts,
-    );
-    const simulcastTrack = track.addSimulcastTrack(opts.videoCodec, encodings);
+    const encodings = computeTrackBackupEncodings(track, videoCodec, opts);
+    if (!encodings) {
+      log.info(
+        `backup codec has been disabled, ignoring request to add additional codec for track`,
+      );
+      return;
+    }
+    const simulcastTrack = track.addSimulcastTrack(videoCodec, encodings);
     const req = AddTrackRequest.fromPartial({
       cid: simulcastTrack.mediaStreamTrack.id,
       type: Track.kindToProto(track.kind),
@@ -627,23 +640,14 @@ export default class LocalParticipant extends Participant {
 
     const ti = await this.engine.addTrack(req);
 
-    if (!this.engine.publisher) {
-      throw new UnexpectedConnectionState('publisher is closed');
-    }
     const transceiverInit: RTCRtpTransceiverInit = { direction: 'sendonly' };
     if (encodings) {
       transceiverInit.sendEncodings = encodings;
     }
-    // addTransceiver for react-native is async. web is synchronous, but await won't effect it.
-    const transceiver = await this.engine.publisher.pc.addTransceiver(
-      simulcastTrack.mediaStreamTrack,
-      transceiverInit,
-    );
-    this.setPreferredCodec(transceiver, track.kind, opts.videoCodec);
-    track.setSimulcastTrackSender(opts.videoCodec, transceiver.sender);
+    await this.engine.createSimulcastSender(track, simulcastTrack, opts, encodings);
 
     this.engine.negotiate();
-    log.debug(`published ${opts.videoCodec} for track ${track.sid}`, { encodings, trackInfo: ti });
+    log.debug(`published ${videoCodec} for track ${track.sid}`, { encodings, trackInfo: ti });
   }
 
   unpublishTrack(
@@ -664,8 +668,6 @@ export default class LocalParticipant extends Participant {
     }
 
     track = publication.track;
-
-    track.sender = undefined;
     track.off(TrackEvent.Muted, this.onTrackMuted);
     track.off(TrackEvent.Unmuted, this.onTrackUnmuted);
     track.off(TrackEvent.Ended, this.handleTrackEnded);
@@ -679,21 +681,30 @@ export default class LocalParticipant extends Participant {
       track.stop();
     }
 
-    const { mediaStreamTrack } = track;
-
-    if (this.engine.publisher && this.engine.publisher.pc.connectionState !== 'closed') {
-      const senders = this.engine.publisher.pc.getSenders();
-      senders.forEach((sender) => {
-        if (sender.track === mediaStreamTrack) {
-          try {
-            this.engine.publisher?.pc.removeTrack(sender);
-            this.engine.negotiate();
-          } catch (e) {
-            log.warn('failed to remove track', { error: e, method: 'unpublishTrack' });
+    if (
+      this.engine.publisher &&
+      this.engine.publisher.pc.connectionState !== 'closed' &&
+      track.sender
+    ) {
+      try {
+        this.engine.removeTrack(track.sender);
+        if (track instanceof LocalVideoTrack) {
+          for (const [, trackInfo] of track.simulcastCodecs) {
+            if (trackInfo.sender) {
+              this.engine.removeTrack(trackInfo.sender);
+              trackInfo.sender = undefined;
+            }
           }
+          track.simulcastCodecs.clear();
         }
-      });
+      } catch (e) {
+        log.warn('failed to unpublish track', { error: e, method: 'unpublishTrack' });
+      } finally {
+        this.engine.negotiate();
+      }
     }
+
+    track.sender = undefined;
 
     // remove from our maps
     this.tracks.delete(publication.trackSid);
@@ -754,10 +765,13 @@ export default class LocalParticipant extends Participant {
 
     const packet: DataPacket = {
       kind,
-      user: {
-        participantSid: this.sid,
-        payload: data,
-        destinationSids: dest,
+      value: {
+        $case: 'user',
+        user: {
+          participantSid: this.sid,
+          payload: data,
+          destinationSids: dest,
+        },
       },
     };
 
@@ -874,8 +888,10 @@ export default class LocalParticipant extends Participant {
       }
       const newCodecs = await pub.videoTrack.setPublishingCodecs(update.subscribedCodecs);
       for await (const codec of newCodecs) {
-        log.debug(`publish ${codec} for ${pub.videoTrack.sid}`);
-        await this.publishAdditionalCodecForTrack(pub.videoTrack, codec, pub.options);
+        if (isBackupCodec(codec)) {
+          log.debug(`publish ${codec} for ${pub.videoTrack.sid}`);
+          await this.publishAdditionalCodecForTrack(pub.videoTrack, codec, pub.options);
+        }
       }
     } else if (update.subscribedQualities.length > 0) {
       pub.videoTrack?.setPublishingLayers(update.subscribedQualities);
@@ -894,11 +910,49 @@ export default class LocalParticipant extends Participant {
     this.unpublishTrack(track.track!);
   };
 
-  private handleTrackEnded = (track: LocalTrack) => {
-    log.debug('unpublishing local track due to TrackEnded', {
-      track: track.sid,
-    });
-    this.unpublishTrack(track);
+  private handleTrackEnded = async (track: LocalTrack) => {
+    if (
+      track.source === Track.Source.ScreenShare ||
+      track.source === Track.Source.ScreenShareAudio
+    ) {
+      log.debug('unpublishing local track due to TrackEnded', {
+        track: track.sid,
+      });
+      this.unpublishTrack(track);
+    } else if (track.isUserProvided) {
+      await track.pauseUpstream();
+    } else if (track instanceof LocalAudioTrack || track instanceof LocalVideoTrack) {
+      try {
+        if (isWeb()) {
+          try {
+            const currentPermissions = await navigator?.permissions.query({
+              // the permission query for camera and microphone currently not supported in Safari and Firefox
+              // @ts-ignore
+              name: track.source === Track.Source.Camera ? 'camera' : 'microphone',
+            });
+            if (currentPermissions && currentPermissions.state === 'denied') {
+              log.warn(`user has revoked access to ${track.source}`);
+
+              // detect granted change after permissions were denied to try and resume then
+              currentPermissions.onchange = () => {
+                if (currentPermissions.state !== 'denied') {
+                  track.restartTrack();
+                  currentPermissions.onchange = null;
+                }
+              };
+              throw new Error('GetUserMedia Permission denied');
+            }
+          } catch (e: any) {
+            // permissions query fails for firefox, we continue and try to restart the track
+          }
+        }
+        log.debug('track ended, attempting to use a different device');
+        await track.restartTrack();
+      } catch (e) {
+        log.warn(`could not restart track, pausing upstream instead`);
+        await track.pauseUpstream();
+      }
+    }
   };
 
   private getPublicationForTrack(
@@ -923,50 +977,6 @@ export default class LocalParticipant extends Participant {
       }
     });
     return publication;
-  }
-
-  private setPreferredCodec(
-    transceiver: RTCRtpTransceiver,
-    kind: Track.Kind,
-    videoCodec: VideoCodec,
-  ) {
-    if (!('getCapabilities' in RTCRtpSender)) {
-      return;
-    }
-    const cap = RTCRtpSender.getCapabilities(kind);
-    if (!cap) return;
-    log.debug('get capabilities', cap);
-    const matched: RTCRtpCodecCapability[] = [];
-    const partialMatched: RTCRtpCodecCapability[] = [];
-    const unmatched: RTCRtpCodecCapability[] = [];
-    cap.codecs.forEach((c) => {
-      const codec = c.mimeType.toLowerCase();
-      if (codec === 'audio/opus') {
-        matched.push(c);
-        return;
-      }
-      const matchesVideoCodec = codec === `video/${videoCodec}`;
-      if (!matchesVideoCodec) {
-        unmatched.push(c);
-        return;
-      }
-      // for h264 codecs that have sdpFmtpLine available, use only if the
-      // profile-level-id is 42e01f for cross-browser compatibility
-      if (videoCodec === 'h264') {
-        if (c.sdpFmtpLine && c.sdpFmtpLine.includes('profile-level-id=42e01f')) {
-          matched.push(c);
-        } else {
-          partialMatched.push(c);
-        }
-        return;
-      }
-
-      matched.push(c);
-    });
-
-    if ('setCodecPreferences' in transceiver) {
-      transceiver.setCodecPreferences(matched.concat(partialMatched, unmatched));
-    }
   }
 
   /** @internal */

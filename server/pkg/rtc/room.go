@@ -43,6 +43,7 @@ type Room struct {
 
 	config      WebRTCConfig
 	audioConfig *config.AudioConfig
+	serverInfo  *livekit.ServerInfo
 	telemetry   telemetry.TelemetryService
 
 	// map of identity -> Participant
@@ -70,13 +71,20 @@ type ParticipantOptions struct {
 	AutoSubscribe bool
 }
 
-func NewRoom(room *livekit.Room, config WebRTCConfig, audioConfig *config.AudioConfig, telemetry telemetry.TelemetryService) *Room {
+func NewRoom(
+	room *livekit.Room,
+	config WebRTCConfig,
+	audioConfig *config.AudioConfig,
+	serverInfo *livekit.ServerInfo,
+	telemetry telemetry.TelemetryService,
+) *Room {
 	r := &Room{
 		protoRoom:       proto.Clone(room).(*livekit.Room),
 		Logger:          LoggerWithRoom(logger.GetDefaultLogger(), livekit.RoomName(room.Name), livekit.RoomID(room.Sid)),
 		config:          config,
 		audioConfig:     audioConfig,
 		telemetry:       telemetry,
+		serverInfo:      serverInfo,
 		participants:    make(map[livekit.ParticipantIdentity]types.LocalParticipant),
 		participantOpts: make(map[livekit.ParticipantIdentity]*ParticipantOptions),
 		bufferFactory:   buffer.NewBufferFactory(config.Receiver.PacketBufferSize),
@@ -196,7 +204,7 @@ func (r *Room) Release() {
 	r.holds.Dec()
 }
 
-func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions, iceServers []*livekit.ICEServer, region string) error {
+func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions, iceServers []*livekit.ICEServer) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -259,7 +267,7 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 			speakers := r.GetActiveSpeakers()
 			for _, speaker := range speakers {
 				if livekit.ParticipantID(speaker.Sid) == publisherID {
-					p.SendSpeakerUpdate(speakers)
+					_ = p.SendSpeakerUpdate(speakers)
 					break
 				}
 			}
@@ -269,7 +277,7 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 			if pub != nil && pub.State() == livekit.ParticipantInfo_ACTIVE {
 				update := &livekit.ConnectionQualityUpdate{}
 				update.Updates = append(update.Updates, pub.GetConnectionQuality())
-				p.SendConnectionQualityUpdate(update)
+				_ = p.SendConnectionQualityUpdate(update)
 			}
 		}()
 	})
@@ -287,14 +295,6 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 	r.participants[participant.Identity()] = participant
 	r.participantOpts[participant.Identity()] = opts
 
-	// gather other participants and send join response
-	otherParticipants := make([]*livekit.ParticipantInfo, 0, len(r.participants))
-	for _, p := range r.participants {
-		if p.ID() != participant.ID() && !p.Hidden() {
-			otherParticipants = append(otherParticipants, p.ToProto())
-		}
-	}
-
 	if r.onParticipantChanged != nil {
 		r.onParticipantChanged(participant)
 	}
@@ -306,7 +306,8 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 		}
 	})
 
-	if err := participant.SendJoinResponse(proto.Clone(r.protoRoom).(*livekit.Room), otherParticipants, iceServers, region); err != nil {
+	joinResponse := r.createJoinResponseLocked(participant, iceServers)
+	if err := participant.SendJoinResponse(joinResponse); err != nil {
 		prometheus.ServiceOperationCounter.WithLabelValues("participant_join", "error", "send_response").Add(1)
 		return err
 	}
@@ -332,9 +333,7 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 
 func (r *Room) ResumeParticipant(p types.LocalParticipant, responseSink routing.MessageSink) error {
 	// close previous sink, and link to new one
-	if prevSink := p.GetResponseSink(); prevSink != nil {
-		prevSink.Close()
-	}
+	p.CloseSignalConnection()
 	p.SetResponseSink(responseSink)
 
 	updates := ToProtoParticipants(r.GetParticipants())
@@ -342,9 +341,7 @@ func (r *Room) ResumeParticipant(p types.LocalParticipant, responseSink routing.
 		return err
 	}
 
-	if err := p.ICERestart(nil); err != nil {
-		return err
-	}
+	p.ICERestart(nil)
 	return nil
 }
 
@@ -454,7 +451,7 @@ func (r *Room) SyncState(participant types.LocalParticipant, state *livekit.Sync
 }
 
 func (r *Room) UpdateSubscriptionPermission(participant types.LocalParticipant, subscriptionPermission *livekit.SubscriptionPermission) error {
-	return participant.UpdateSubscriptionPermission(subscriptionPermission, r.GetParticipant, r.GetParticipantBySid)
+	return participant.UpdateSubscriptionPermission(subscriptionPermission, nil, r.GetParticipant, r.GetParticipantBySid)
 }
 
 func (r *Room) RemoveDisallowedSubscriptions(sub types.LocalParticipant, disallowedSubscriptions map[livekit.TrackID]livekit.ParticipantID) {
@@ -508,7 +505,7 @@ func (r *Room) CloseIfEmpty() {
 	}
 
 	for _, p := range r.participants {
-		if !p.Hidden() {
+		if !p.IsRecorder() {
 			r.lock.Unlock()
 			return
 		}
@@ -544,6 +541,9 @@ func (r *Room) Close() {
 	close(r.closed)
 	r.lock.Unlock()
 	r.Logger.Infow("closing room")
+	for _, p := range r.GetParticipants() {
+		_ = p.Close(true, types.ParticipantCloseReasonRoomClose)
+	}
 	if r.onClose != nil {
 		r.onClose()
 	}
@@ -636,12 +636,10 @@ func (r *Room) SimulateScenario(participant types.LocalParticipant, simulateScen
 
 	case *livekit.SimulateScenario_SwitchCandidateProtocol:
 		r.Logger.Infow("simulating switch candidate protocol", "participant", participant.Identity())
-		if err := participant.ICERestart(&types.IceConfig{
-			PreferSubTcp: scenario.SwitchCandidateProtocol == livekit.CandidateProtocol_TCP,
-			PreferPubTcp: scenario.SwitchCandidateProtocol == livekit.CandidateProtocol_TCP,
-		}); err != nil {
-			return err
-		}
+		participant.ICERestart(&types.IceConfig{
+			PreferSub: types.PreferCandidateType(scenario.SwitchCandidateProtocol),
+			PreferPub: types.PreferCandidateType(scenario.SwitchCandidateProtocol),
+		})
 	}
 	return nil
 }
@@ -658,6 +656,32 @@ func (r *Room) autoSubscribe(participant types.LocalParticipant) bool {
 		return false
 	}
 	return true
+}
+
+func (r *Room) createJoinResponseLocked(participant types.LocalParticipant, iceServers []*livekit.ICEServer) *livekit.JoinResponse {
+	// gather other participants and send join response
+	otherParticipants := make([]*livekit.ParticipantInfo, 0, len(r.participants))
+	for _, p := range r.participants {
+		if p.ID() != participant.ID() && !p.Hidden() {
+			otherParticipants = append(otherParticipants, p.ToProto())
+		}
+	}
+
+	return &livekit.JoinResponse{
+		Room:              r.protoRoom,
+		Participant:       participant.ToProto(),
+		OtherParticipants: otherParticipants,
+		ServerVersion:     r.serverInfo.Version,
+		ServerRegion:      r.serverInfo.Region,
+		IceServers:        iceServers,
+		// indicates both server and client support subscriber as primary
+		SubscriberPrimary:   participant.SubscriberAsPrimary(),
+		ClientConfiguration: participant.GetClientConfiguration(),
+		// sane defaults for ping interval & timeout
+		PingInterval: 10,
+		PingTimeout:  20,
+		ServerInfo:   r.serverInfo,
+	}
 }
 
 // a ParticipantImpl in the room added a new remoteTrack, subscribe other participants to it
@@ -961,7 +985,9 @@ func (r *Room) connectionQualityWorker() {
 				continue
 			}
 
-			nowConnectionInfos[p.ID()] = p.GetConnectionQuality()
+			if q := p.GetConnectionQuality(); q != nil {
+				nowConnectionInfos[p.ID()] = q
+			}
 		}
 
 		// send an update if there is a change

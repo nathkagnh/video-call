@@ -7,6 +7,8 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -17,7 +19,7 @@ import (
 	"github.com/livekit/livekit-server/pkg/routing/routingfakes"
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/rtc/types/typesfakes"
-	"github.com/livekit/livekit-server/pkg/sfu/connectionquality"
+	"github.com/livekit/livekit-server/pkg/testutils"
 )
 
 func TestIsReady(t *testing.T) {
@@ -116,12 +118,13 @@ func TestTrackPublishing(t *testing.T) {
 		require.Equal(t, 1, sink.WriteMessageCallCount())
 	})
 
-	t.Run("should not allow adding of duplicate tracks if already published by client id in signalling", func(t *testing.T) {
+	t.Run("should queue adding of duplicate tracks if already published by client id in signalling", func(t *testing.T) {
 		p := newParticipantForTest("test")
 		sink := p.params.Sink.(*routingfakes.FakeMessageSink)
 
 		track := &typesfakes.FakeLocalMediaTrack{}
 		track.SignalCidReturns("cid")
+		track.ToProtoReturns(&livekit.TrackInfo{})
 		// directly add to publishedTracks without lock - for testing purpose only
 		p.UpTrackManager.publishedTracks["cid"] = track
 
@@ -131,13 +134,27 @@ func TestTrackPublishing(t *testing.T) {
 			Type: livekit.TrackType_VIDEO,
 		})
 		require.Equal(t, 0, sink.WriteMessageCallCount())
+		require.Equal(t, 1, len(p.pendingTracks["cid"].trackInfos))
+
+		// add again - it should be added to the queue
+		p.AddTrack(&livekit.AddTrackRequest{
+			Cid:  "cid",
+			Name: "webcam",
+			Type: livekit.TrackType_VIDEO,
+		})
+		require.Equal(t, 0, sink.WriteMessageCallCount())
+		require.Equal(t, 2, len(p.pendingTracks["cid"].trackInfos))
+
+		// check SID is the same
+		require.Equal(t, p.pendingTracks["cid"].trackInfos[0].Sid, p.pendingTracks["cid"].trackInfos[1].Sid)
 	})
 
-	t.Run("should not allow adding of duplicate tracks if already published by client id in sdp", func(t *testing.T) {
+	t.Run("should queue adding of duplicate tracks if already published by client id in sdp", func(t *testing.T) {
 		p := newParticipantForTest("test")
 		sink := p.params.Sink.(*routingfakes.FakeMessageSink)
 
 		track := &typesfakes.FakeLocalMediaTrack{}
+		track.ToProtoReturns(&livekit.TrackInfo{})
 		track.HasSdpCidCalls(func(s string) bool { return s == "cid" })
 		// directly add to publishedTracks without lock - for testing purpose only
 		p.UpTrackManager.publishedTracks["cid"] = track
@@ -148,13 +165,26 @@ func TestTrackPublishing(t *testing.T) {
 			Type: livekit.TrackType_VIDEO,
 		})
 		require.Equal(t, 0, sink.WriteMessageCallCount())
+		require.Equal(t, 1, len(p.pendingTracks["cid"].trackInfos))
+
+		// add again - it should be added to the queue
+		p.AddTrack(&livekit.AddTrackRequest{
+			Cid:  "cid",
+			Name: "webcam",
+			Type: livekit.TrackType_VIDEO,
+		})
+		require.Equal(t, 0, sink.WriteMessageCallCount())
+		require.Equal(t, 2, len(p.pendingTracks["cid"].trackInfos))
+
+		// check SID is the same
+		require.Equal(t, p.pendingTracks["cid"].trackInfos[0].Sid, p.pendingTracks["cid"].trackInfos[1].Sid)
 	})
 }
 
 func TestOutOfOrderUpdates(t *testing.T) {
 	p := newParticipantForTest("test")
 	p.SetMetadata("initial metadata")
-	sink := p.GetResponseSink().(*routingfakes.FakeMessageSink)
+	sink := p.getResponseSink().(*routingfakes.FakeMessageSink)
 	pi1 := p.ToProto()
 	p.SetMetadata("second update")
 	pi2 := p.ToProto()
@@ -202,7 +232,7 @@ func TestMuteSetting(t *testing.T) {
 	t.Run("can set mute when track is pending", func(t *testing.T) {
 		p := newParticipantForTest("test")
 		ti := &livekit.TrackInfo{Sid: "testTrack"}
-		p.pendingTracks["cid"] = &pendingTrackInfo{TrackInfo: ti}
+		p.pendingTracks["cid"] = &pendingTrackInfo{trackInfos: []*livekit.TrackInfo{ti}}
 
 		p.SetTrackMuted(livekit.TrackID(ti.Sid), true, false)
 		require.True(t, ti.Muted)
@@ -219,288 +249,6 @@ func TestMuteSetting(t *testing.T) {
 		_, ti := p.getPendingTrack("cid", livekit.TrackType_AUDIO)
 		require.NotNil(t, ti)
 		require.True(t, ti.Muted)
-	})
-}
-
-func TestConnectionQuality(t *testing.T) {
-	testPublishedVideoTrack := func(params connectionquality.TrackScoreParams) *typesfakes.FakeLocalMediaTrack {
-		tr := &typesfakes.FakeLocalMediaTrack{}
-		score := connectionquality.VideoTrackScore(params)
-		t.Log("video score: ", score)
-		tr.GetConnectionScoreReturns(score)
-		return tr
-	}
-
-	testPublishedAudioTrack := func(params connectionquality.TrackScoreParams) *typesfakes.FakeLocalMediaTrack {
-		tr := &typesfakes.FakeLocalMediaTrack{}
-		score := connectionquality.AudioTrackScore(params)
-		t.Log("audio score: ", score)
-		tr.GetConnectionScoreReturns(score)
-		return tr
-	}
-
-	testPublishedScreenshareTrack := func(params connectionquality.TrackScoreParams) *typesfakes.FakeLocalMediaTrack {
-		tr := &typesfakes.FakeLocalMediaTrack{}
-		score := connectionquality.ScreenshareTrackScore(params)
-		t.Log("screen share score: ", score)
-		tr.GetConnectionScoreReturns(score)
-		return tr
-	}
-
-	// TODO: this test is rather limited since we cannot mock DownTrack's Target & Max spatial layers
-	// to improve this after split
-
-	t.Run("smooth sailing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// >2Mbps, 30fps,  expected/actual video size = 1280x720
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           290000,
-			Frames:          30,
-			Jitter:          0.0,
-			Rtt:             0,
-			ExpectedWidth:   1280,
-			ExpectedHeight:  720,
-			ActualWidth:     1280,
-			ActualHeight:    720,
-		}
-		p.UpTrackManager.publishedTracks["video"] = testPublishedVideoTrack(params)
-
-		// no packet loss
-		params = connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			Codec:           "opus",
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           1000,
-			Jitter:          0.0,
-			Rtt:             0,
-			DtxDisabled:     false,
-		}
-		p.UpTrackManager.publishedTracks["audio"] = testPublishedAudioTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_EXCELLENT, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("reduced publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 1Mbps, 15fps,  expected = 1280x720, actual = 640 x 480
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           125000,
-			Frames:          15,
-			Jitter:          0.0,
-			Rtt:             0,
-			ExpectedWidth:   1280,
-			ExpectedHeight:  720,
-			ActualWidth:     640,
-			ActualHeight:    480,
-		}
-		p.UpTrackManager.publishedTracks["video"] = testPublishedVideoTrack(params)
-
-		// packet loss of 5%
-		params = connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			Codec:           "opus",
-			PacketsExpected: 100,
-			PacketsLost:     5,
-			Bytes:           1000,
-			Jitter:          0.0,
-			Rtt:             0,
-			DtxDisabled:     false,
-		}
-		p.UpTrackManager.publishedTracks["audio"] = testPublishedAudioTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_GOOD, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("audio smooth publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-		// no packet loss
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			Codec:           "opus",
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           1000,
-			Jitter:          0.0,
-			Rtt:             0,
-			DtxDisabled:     false,
-		}
-		p.UpTrackManager.publishedTracks["audio"] = testPublishedAudioTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_EXCELLENT, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("audio reduced publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			Codec:           "opus",
-			PacketsExpected: 100,
-			PacketsLost:     5,
-			Bytes:           1000,
-			Jitter:          0.0,
-			Rtt:             0,
-			DtxDisabled:     false,
-		}
-		p.UpTrackManager.publishedTracks["audio"] = testPublishedAudioTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_GOOD, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("audio bad publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			Codec:           "opus",
-			PacketsExpected: 100,
-			PacketsLost:     20,
-			Bytes:           1000,
-			Jitter:          0.0,
-			Rtt:             0,
-			DtxDisabled:     false,
-		}
-		p.UpTrackManager.publishedTracks["audio"] = testPublishedAudioTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_POOR, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("video smooth publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// >2Mbps, 30fps,  expected/actual video size = 1280x720
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           290000,
-			Frames:          30,
-			Jitter:          0.0,
-			Rtt:             0,
-			ExpectedWidth:   1280,
-			ExpectedHeight:  720,
-			ActualWidth:     1280,
-			ActualHeight:    720,
-		}
-		p.UpTrackManager.publishedTracks["video"] = testPublishedVideoTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_EXCELLENT, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("video reduced publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 1Mbps, 15fps,  expected = 1280x720, actual = 640 x 480
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           125000,
-			Frames:          15,
-			Jitter:          0.0,
-			Rtt:             0,
-			ExpectedWidth:   1280,
-			ExpectedHeight:  720,
-			ActualWidth:     640,
-			ActualHeight:    480,
-		}
-		p.UpTrackManager.publishedTracks["video"] = testPublishedVideoTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_GOOD, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("video poor publishing", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 20kbps, 8fps,  expected = 1280x720, actual = 240x426
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           2500,
-			Frames:          8,
-			Jitter:          0.0,
-			Rtt:             0,
-			ExpectedWidth:   1280,
-			ExpectedHeight:  720,
-			ActualWidth:     240,
-			ActualHeight:    426,
-		}
-		p.UpTrackManager.publishedTracks["video"] = testPublishedVideoTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_POOR, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("screen share no loss, not reduced quality, should be excellent", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 20kbps, 2fps
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     0,
-			Bytes:           2500,
-			Frames:          2,
-		}
-		p.UpTrackManager.publishedTracks["ss"] = testPublishedScreenshareTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_EXCELLENT, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("screen share low loss, not reduced quality, should be excellent", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 20kbps, 2fps
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     1,
-			Bytes:           2500,
-			Frames:          2,
-		}
-		p.UpTrackManager.publishedTracks["ss"] = testPublishedScreenshareTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_EXCELLENT, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("screen share high loss, not reduced quality, should be poor", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 20kbps, 2fps
-		params := connectionquality.TrackScoreParams{
-			Duration:        1 * time.Second,
-			PacketsExpected: 100,
-			PacketsLost:     5,
-			Bytes:           2500,
-			Frames:          2,
-		}
-		p.UpTrackManager.publishedTracks["ss"] = testPublishedScreenshareTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_POOR, p.GetConnectionQuality().GetQuality())
-	})
-
-	t.Run("screen share no loss, but reduced quality, should be good", func(t *testing.T) {
-		p := newParticipantForTest("test")
-
-		// 20kbps, 2fps
-		params := connectionquality.TrackScoreParams{
-			Duration:         1 * time.Second,
-			PacketsExpected:  100,
-			PacketsLost:      0,
-			Bytes:            2500,
-			Frames:           2,
-			IsReducedQuality: true,
-		}
-		p.UpTrackManager.publishedTracks["ss"] = testPublishedScreenshareTrack(params)
-
-		require.Equal(t, livekit.ConnectionQuality_GOOD, p.GetConnectionQuality().GetQuality())
 	})
 }
 
@@ -549,6 +297,7 @@ func TestSetStableTrackID(t *testing.T) {
 		name                 string
 		trackInfo            *livekit.TrackInfo
 		unpublished          []*livekit.TrackInfo
+		cid                  string
 		prefix               string
 		remainingUnpublished int
 	}{
@@ -578,6 +327,7 @@ func TestSetStableTrackID(t *testing.T) {
 					Sid:    "TR_VC1235",
 				},
 			},
+			cid:                  "TR_VC1235",
 			prefix:               "TR_VC1235",
 			remainingUnpublished: 1,
 		},
@@ -606,7 +356,7 @@ func TestSetStableTrackID(t *testing.T) {
 			p.unpublishedTracks = tc.unpublished
 
 			ti := tc.trackInfo
-			p.setStableTrackID(ti)
+			p.setStableTrackID(tc.cid, ti)
 			require.Contains(t, ti.Sid, tc.prefix)
 			require.Len(t, p.unpublishedTracks, tc.remainingUnpublished)
 		})
@@ -644,9 +394,30 @@ func TestDisableCodecs(t *testing.T) {
 	require.True(t, found264)
 
 	// negotiated codec should not contain h264
-	anwser, err := participant.HandleOffer(sdp)
-	require.NoError(t, err)
-	require.NoError(t, pc.SetRemoteDescription(anwser), anwser.SDP, sdp.SDP)
+	sink := &routingfakes.FakeMessageSink{}
+	participant.SetResponseSink(sink)
+	var answer webrtc.SessionDescription
+	var answerReceived atomic.Bool
+	sink.WriteMessageStub = func(msg proto.Message) error {
+		if res, ok := msg.(*livekit.SignalResponse); ok {
+			if res.GetAnswer() != nil {
+				answer = FromProtoSessionDescription(res.GetAnswer())
+				answerReceived.Store(true)
+			}
+		}
+		return nil
+	}
+	participant.HandleOffer(sdp)
+
+	testutils.WithTimeout(t, func() string {
+		if answerReceived.Load() {
+			return ""
+		} else {
+			return "answer not received"
+		}
+	})
+	require.NoError(t, pc.SetRemoteDescription(answer), answer.SDP, sdp.SDP)
+
 	codecs = transceiver.Receiver().GetParameters().Codecs
 	found264 = false
 	for _, c := range codecs {
@@ -662,6 +433,7 @@ type participantOpts struct {
 	protocolVersion types.ProtocolVersion
 	publisher       bool
 	clientConf      *livekit.ClientConfiguration
+	clientInfo      *livekit.ClientInfo
 }
 
 func newParticipantForTestWithOpts(identity livekit.ParticipantIdentity, opts *participantOpts) *ParticipantImpl {
@@ -705,6 +477,7 @@ func newParticipantForTestWithOpts(identity livekit.ParticipantIdentity, opts *p
 		Grants:            grants,
 		EnabledCodecs:     enabledCodecs,
 		ClientConf:        opts.clientConf,
+		ClientInfo:        ClientInfo{ClientInfo: opts.clientInfo},
 	})
 	p.isPublisher.Store(opts.publisher)
 
