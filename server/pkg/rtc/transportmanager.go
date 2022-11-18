@@ -1,6 +1,7 @@
 package rtc
 
 import (
+	"math/bits"
 	"strings"
 	"sync"
 
@@ -18,6 +19,16 @@ import (
 	"github.com/livekit/protocol/logger"
 )
 
+const (
+	failureCountThreshold = 2
+
+	// when RR report loss percentage over this threshold, we consider it is a unstable event
+	udpLossFracUnstable = 25
+	// if in last 32 times RR, the unstable report count over this threshold, the connection is unstable
+	udpLossUnstableCountThreshold = 20
+	tcpGoodRTT                    = 80
+)
+
 type TransportManagerParams struct {
 	Identity                livekit.ParticipantIdentity
 	SID                     livekit.ParticipantID
@@ -32,21 +43,29 @@ type TransportManagerParams struct {
 	ClientInfo              ClientInfo
 	Migration               bool
 	AllowTCPFallback        bool
+	TURNSEnabled            bool
 	Logger                  logger.Logger
 }
 
 type TransportManager struct {
 	params TransportManagerParams
 
-	publisher  *PCTransport
-	subscriber *PCTransport
-
 	lock sync.RWMutex
+
+	publisher               *PCTransport
+	subscriber              *PCTransport
+	failureCount            int
+	isTransportReconfigured bool
 
 	pendingOfferPublisher        *webrtc.SessionDescription
 	pendingDataChannelsPublisher []*livekit.DataChannelInfo
 	lastPublisherAnswer          atomic.Value
+	lastPublisherOffer           atomic.Value
 	iceConfig                    types.IceConfig
+
+	mediaLossProxy       *MediaLossProxy
+	udpLossUnstableCount uint32
+	tcpRTT, udpRTT       uint32
 
 	onPublisherInitialConnected        func()
 	onSubscriberInitialConnected       func()
@@ -58,8 +77,10 @@ type TransportManager struct {
 
 func NewTransportManager(params TransportManagerParams) (*TransportManager, error) {
 	t := &TransportManager{
-		params: params,
+		params:         params,
+		mediaLossProxy: NewMediaLossProxy(MediaLossProxyParams{Logger: params.Logger}),
 	}
+	t.mediaLossProxy.OnMediaLossUpdate(t.onMediaLossUpdate)
 
 	enabledCodecs := make([]*livekit.Codec, 0, len(params.EnabledCodecs))
 	for _, c := range params.EnabledCodecs {
@@ -102,6 +123,7 @@ func NewTransportManager(params TransportManagerParams) (*TransportManager, erro
 		}
 	})
 	t.publisher.OnFailed(func(isShortLived bool) {
+		t.handleConnectionFailed(isShortLived)
 		if t.onAnyTransportFailed != nil {
 			t.onAnyTransportFailed()
 		}
@@ -153,12 +175,16 @@ func (t *TransportManager) Close() {
 	t.subscriber.Close()
 }
 
-func (t *TransportManager) OnPublisherICECandidate(f func(c *webrtc.ICECandidate) error) {
-	t.publisher.OnICECandidate(f)
+func (t *TransportManager) HaveAllTransportEverConnected() bool {
+	return t.publisher.HasEverConnected() && t.subscriber.HasEverConnected()
 }
 
-func (t *TransportManager) OnPublisherGetDTX(f func() bool) {
-	t.publisher.OnGetDTX(f)
+func (t *TransportManager) SubscriberClose() {
+	t.subscriber.Close()
+}
+
+func (t *TransportManager) OnPublisherICECandidate(f func(c *webrtc.ICECandidate) error) {
+	t.publisher.OnICECandidate(f)
 }
 
 func (t *TransportManager) OnPublisherAnswer(f func(answer webrtc.SessionDescription) error) {
@@ -212,12 +238,12 @@ func (t *TransportManager) HasSubscriberEverConnected() bool {
 	return t.subscriber.HasEverConnected()
 }
 
-func (t *TransportManager) AddTrackToSubscriber(trackLocal webrtc.TrackLocal) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
-	return t.subscriber.AddTrack(trackLocal)
+func (t *TransportManager) AddTrackToSubscriber(trackLocal webrtc.TrackLocal, params types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
+	return t.subscriber.AddTrack(trackLocal, params)
 }
 
-func (t *TransportManager) AddTransceiverFromTrackToSubscriber(trackLocal webrtc.TrackLocal) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
-	return t.subscriber.AddTransceiverFromTrack(trackLocal)
+func (t *TransportManager) AddTransceiverFromTrackToSubscriber(trackLocal webrtc.TrackLocal, params types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
+	return t.subscriber.AddTransceiverFromTrack(trackLocal, params)
 }
 
 func (t *TransportManager) RemoveTrackFromSubscriber(sender *webrtc.RTPSender) error {
@@ -310,7 +336,7 @@ func (t *TransportManager) createDataChannelsForSubscriber(pendingDataChannels [
 	return nil
 }
 
-func (t *TransportManager) GetLastUnmatchedMediaForOffer(offer webrtc.SessionDescription, mediaType string) (parsed *sdp.SessionDescription, unmatched *sdp.MediaDescription, err error) {
+func (t *TransportManager) GetUnmatchMediaForOffer(offer webrtc.SessionDescription, mediaType string) (parsed *sdp.SessionDescription, unmatched []*sdp.MediaDescription, err error) {
 	// prefer codec from offer for clients that don't support setCodecPreferences
 	parsed, err = offer.Unmarshal()
 	if err != nil {
@@ -318,18 +344,7 @@ func (t *TransportManager) GetLastUnmatchedMediaForOffer(offer webrtc.SessionDes
 		return
 	}
 
-	for i := len(parsed.MediaDescriptions) - 1; i >= 0; i-- {
-		media := parsed.MediaDescriptions[i]
-		if media.MediaName.Media == mediaType {
-			unmatched = media
-			break
-		}
-	}
-
-	if unmatched == nil {
-		return
-	}
-
+	var lastMatchedMid string
 	lastAnswer := t.lastPublisherAnswer.Load()
 	if lastAnswer != nil {
 		answer := lastAnswer.(webrtc.SessionDescription)
@@ -340,17 +355,34 @@ func (t *TransportManager) GetLastUnmatchedMediaForOffer(offer webrtc.SessionDes
 			return
 		}
 
-		for _, m := range parsedAnswer.MediaDescriptions {
-			mid, _ := m.Attribute(sdp.AttrKeyMID)
-			if lastMid, _ := unmatched.Attribute(sdp.AttrKeyMID); lastMid == mid {
-				// mid matched, return
-				unmatched = nil
-				return
+		for i := len(parsedAnswer.MediaDescriptions) - 1; i >= 0; i-- {
+			media := parsedAnswer.MediaDescriptions[i]
+			if media.MediaName.Media == mediaType {
+				lastMatchedMid, _ = media.Attribute(sdp.AttrKeyMID)
+				break
 			}
 		}
 	}
 
+	for i := len(parsed.MediaDescriptions) - 1; i >= 0; i-- {
+		media := parsed.MediaDescriptions[i]
+		if media.MediaName.Media == mediaType {
+			mid, _ := media.Attribute(sdp.AttrKeyMID)
+			if mid == lastMatchedMid {
+				break
+			}
+			unmatched = append(unmatched, media)
+		}
+	}
+
 	return
+}
+
+func (t *TransportManager) LastPublisherOffer() webrtc.SessionDescription {
+	if sd := t.lastPublisherOffer.Load(); sd != nil {
+		return sd.(webrtc.SessionDescription)
+	}
+	return webrtc.SessionDescription{}
 }
 
 func (t *TransportManager) HandleOffer(offer webrtc.SessionDescription, shouldPend bool) {
@@ -361,6 +393,7 @@ func (t *TransportManager) HandleOffer(offer webrtc.SessionDescription, shouldPe
 		return
 	}
 	t.lock.Unlock()
+	t.lastPublisherOffer.Store(offer)
 
 	t.publisher.HandleRemoteDescription(offer)
 }
@@ -376,10 +409,7 @@ func (t *TransportManager) ProcessPendingPublisherOffer() {
 	}
 }
 
-// HandleAnswer handles a client answer response, with subscriber PC, server initiates the
-// offer and client answers
 func (t *TransportManager) HandleAnswer(answer webrtc.SessionDescription) {
-	t.params.Logger.Infow("received answer", "transport", livekit.SignalTarget_SUBSCRIBER)
 	t.subscriber.HandleRemoteDescription(answer)
 }
 
@@ -400,14 +430,6 @@ func (t *TransportManager) NegotiateSubscriber(force bool) {
 	t.subscriber.Negotiate(force)
 }
 
-func (t *TransportManager) AddNegotiationPending(publisherID livekit.ParticipantID) {
-	t.subscriber.AddNegotiationPending(publisherID)
-}
-
-func (t *TransportManager) IsNegotiationPending(publisherID livekit.ParticipantID) bool {
-	return t.subscriber.IsNegotiationPending(publisherID)
-}
-
 func (t *TransportManager) ICERestart(iceConfig *types.IceConfig) {
 	if iceConfig != nil {
 		t.SetICEConfig(*iceConfig)
@@ -423,15 +445,29 @@ func (t *TransportManager) OnICEConfigChanged(f func(iceConfig types.IceConfig))
 }
 
 func (t *TransportManager) SetICEConfig(iceConfig types.IceConfig) {
+	t.configureICE(iceConfig, true)
+}
+
+func (t *TransportManager) configureICE(iceConfig types.IceConfig, reset bool) {
+	t.lock.Lock()
+	if t.iceConfig == iceConfig {
+		t.lock.Unlock()
+		return
+	}
+
 	t.params.Logger.Infow("setting ICE config", "iceConfig", iceConfig)
+	onICEConfigChanged := t.onICEConfigChanged
+	t.iceConfig = iceConfig
+	t.failureCount = 0
+	t.isTransportReconfigured = !reset
+	t.lock.Unlock()
+
+	if iceConfig.PreferSub != types.PreferNone {
+		t.mediaLossProxy.OnMediaLossUpdate(nil)
+	}
 
 	t.publisher.SetPreferTCP(iceConfig.PreferPub == types.PreferTcp)
 	t.subscriber.SetPreferTCP(iceConfig.PreferSub == types.PreferTcp)
-
-	t.lock.Lock()
-	onICEConfigChanged := t.onICEConfigChanged
-	t.iceConfig = iceConfig
-	t.lock.Unlock()
 
 	if onICEConfigChanged != nil {
 		onICEConfigChanged(iceConfig)
@@ -440,6 +476,10 @@ func (t *TransportManager) SetICEConfig(iceConfig types.IceConfig) {
 
 func (t *TransportManager) SubscriberAsPrimary() bool {
 	return t.params.SubscriberAsPrimary
+}
+
+func (t *TransportManager) GetICEConnectionType() types.ICEConnectionType {
+	return t.getTransport(true).GetICEConnectionType()
 }
 
 func (t *TransportManager) getTransport(isPrimary bool) *PCTransport {
@@ -452,39 +492,73 @@ func (t *TransportManager) getTransport(isPrimary bool) *PCTransport {
 }
 
 func (t *TransportManager) handleConnectionFailed(isShortLived bool) {
-	if !t.params.AllowTCPFallback || !isShortLived {
+	if !t.params.AllowTCPFallback {
 		return
 	}
-	t.lock.RLock()
-	iceConfig := t.iceConfig
-	t.lock.RUnlock()
 
-	var nextConfig types.IceConfig
+	t.lock.Lock()
+	if t.isTransportReconfigured {
+		t.lock.Unlock()
+		return
+	}
+
+	//
+	// Checking only `PreferSub` field although any connection failure (PUBLISHER OR SUBSCRIBER) will
+	// flow through here.
+	//
+	// As both transports are switched to the same type on any failure, checking just subscriber should be fine.
+	//
+	getNext := func(ic types.IceConfig) types.PreferCandidateType {
+		if ic.PreferSub == types.PreferNone && t.params.ClientInfo.SupportsICETCP() {
+			return types.PreferTcp
+		} else if ic.PreferSub != types.PreferTls && t.params.TURNSEnabled {
+			return types.PreferTls
+		} else {
+			return types.PreferNone
+		}
+	}
+
+	var preferNext types.PreferCandidateType
+	if isShortLived {
+		preferNext = getNext(t.iceConfig)
+	} else {
+		t.failureCount++
+		if t.failureCount < failureCountThreshold {
+			t.lock.Unlock()
+			return
+		}
+
+		preferNext = getNext(t.iceConfig)
+	}
+
+	if preferNext == t.iceConfig.PreferSub {
+		t.lock.Unlock()
+		return
+	}
+
+	t.isTransportReconfigured = true
+	t.lock.Unlock()
+
+	switch preferNext {
+	case types.PreferTcp:
+		t.params.Logger.Infow("prefer TCP transport on both peer connections")
+
+	case types.PreferTls:
+		t.params.Logger.Infow("prefer TLS transport both peer connections")
+
+	case types.PreferNone:
+		t.params.Logger.Infow("allowing all transports on both peer connections")
+	}
+
 	// irrespective of which one fails, force prefer candidate on both as the other one might
 	// fail at a different time and cause another disruption
-	switch iceConfig.PreferSub {
-	case types.PreferNone:
-		t.params.Logger.Infow("restricting transport to TCP on both peer connections")
-		nextConfig = types.IceConfig{
-			PreferPub: types.PreferTcp,
-			PreferSub: types.PreferTcp,
-		}
-
-	case types.PreferTcp:
-		t.params.Logger.Infow("prefer transport to TLS on both peer connections")
-		nextConfig = types.IceConfig{
-			PreferPub: types.PreferTls,
-			PreferSub: types.PreferTls,
-		}
-
-	default:
-		return
-	}
-
-	t.SetICEConfig(nextConfig)
+	t.configureICE(types.IceConfig{
+		PreferPub: preferNext,
+		PreferSub: preferNext,
+	}, false)
 }
 
-func (t *TransportManager) SetMigrateInfo(previousAnswer *webrtc.SessionDescription, dataChannels []*livekit.DataChannelInfo) {
+func (t *TransportManager) SetMigrateInfo(previousOffer, previousAnswer *webrtc.SessionDescription, dataChannels []*livekit.DataChannelInfo) {
 	t.lock.Lock()
 	t.pendingDataChannelsPublisher = make([]*livekit.DataChannelInfo, 0, len(dataChannels))
 	pendingDataChannelsSubscriber := make([]*livekit.DataChannelInfo, 0, len(dataChannels))
@@ -503,7 +577,7 @@ func (t *TransportManager) SetMigrateInfo(previousAnswer *webrtc.SessionDescript
 		}
 	}
 
-	t.subscriber.SetPreviousAnswer(previousAnswer)
+	t.subscriber.SetPreviousSdp(previousOffer, previousAnswer)
 }
 
 func (t *TransportManager) ProcessPendingPublisherDataChannels() {
@@ -546,5 +620,42 @@ func (t *TransportManager) ProcessPendingPublisherDataChannels() {
 		} else {
 			t.params.Logger.Debugw("create migrated data channel", "label", dcLabel, "id", dcID)
 		}
+	}
+}
+
+func (t *TransportManager) OnReceiverReport(dt *sfu.DownTrack, report *rtcp.ReceiverReport) {
+	t.mediaLossProxy.HandleMaxLossFeedback(dt, report)
+}
+
+func (t *TransportManager) onMediaLossUpdate(loss uint8) {
+	t.lock.Lock()
+	t.udpLossUnstableCount <<= 1
+	if loss >= uint8(255*udpLossFracUnstable/100) {
+		t.udpLossUnstableCount |= 1
+		if bits.OnesCount32(t.udpLossUnstableCount) >= udpLossUnstableCountThreshold {
+			if t.udpRTT > 0 && t.tcpRTT < uint32(float32(t.udpRTT)*1.3) && t.tcpRTT < tcpGoodRTT {
+				t.udpLossUnstableCount = 0
+				t.lock.Unlock()
+				t.params.Logger.Infow("udp connection unstable, switch to tcp")
+				t.handleConnectionFailed(true)
+				if t.onAnyTransportFailed != nil {
+					t.onAnyTransportFailed()
+				}
+				return
+			}
+		}
+	}
+	t.lock.Unlock()
+}
+
+func (t *TransportManager) UpdateRTT(rtt uint32, isUDP bool) {
+	if isUDP {
+		if t.udpRTT == 0 {
+			t.udpRTT = rtt
+		} else {
+			t.udpRTT = uint32(int(t.udpRTT) + (int(rtt)-int(t.udpRTT))/2)
+		}
+	} else {
+		t.tcpRTT = rtt
 	}
 }

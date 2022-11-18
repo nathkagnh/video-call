@@ -11,7 +11,7 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/sfu"
-	"github.com/livekit/livekit-server/pkg/utils"
+	"github.com/livekit/livekit-server/pkg/sfu/buffer"
 )
 
 const (
@@ -58,7 +58,9 @@ func (t *SubscribedTrack) OnBind(f func()) {
 func (t *SubscribedTrack) Bound() {
 	t.bound.Store(true)
 	if !t.params.AdaptiveStream {
-		t.params.DownTrack.SetMaxSpatialLayer(utils.SpatialLayerForQuality(livekit.VideoQuality_HIGH))
+		t.params.DownTrack.SetMaxSpatialLayer(
+			buffer.VideoQualityToSpatialLayer(livekit.VideoQuality_HIGH, t.params.MediaTrack.ToProto()),
+		)
 	}
 	t.maybeOnBind()
 }
@@ -131,6 +133,7 @@ func (t *SubscribedTrack) UpdateVideoLayer() {
 	if t.DownTrack().Kind() != webrtc.RTPCodecTypeVideo {
 		return
 	}
+	t.Subscriber().GetLogger().Debugw("updating video layer")
 
 	settings, ok := t.settings.Load().(*livekit.UpdateTrackSettings)
 	if !ok {
@@ -141,7 +144,12 @@ func (t *SubscribedTrack) UpdateVideoLayer() {
 	if settings.Width > 0 {
 		quality = t.MediaTrack().GetQualityForDimension(settings.Width, settings.Height)
 	}
-	t.DownTrack().SetMaxSpatialLayer(utils.SpatialLayerForQuality(quality))
+
+	spatial := buffer.VideoQualityToSpatialLayer(quality, t.params.MediaTrack.ToProto())
+	t.DownTrack().SetMaxSpatialLayer(spatial)
+	if settings.Fps > 0 {
+		t.DownTrack().SetMaxTemporalLayer(t.MediaTrack().GetTemporalLayerForSpatialFps(spatial, settings.Fps, t.DownTrack().Codec().MimeType))
+	}
 }
 
 func (t *SubscribedTrack) updateDownTrackMute() {

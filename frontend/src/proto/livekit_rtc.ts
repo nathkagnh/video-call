@@ -195,6 +195,9 @@ export interface AddTrackRequest {
   simulcastCodecs: SimulcastCodec[];
   /** server ID of track, publish new codec to exist track */
   sid: string;
+  stereo: boolean;
+  /** true if RED (Redundant Encoding) is disabled for audio */
+  disableRed: boolean;
 }
 
 export interface TrickleRequest {
@@ -264,6 +267,8 @@ export interface UpdateTrackSettings {
   width: number;
   /** for video, height to receive */
   height: number;
+  /** for video, frame rate to receive */
+  fps: number;
 }
 
 export interface LeaveRequest {
@@ -1078,6 +1083,8 @@ function createBaseAddTrackRequest(): AddTrackRequest {
     layers: [],
     simulcastCodecs: [],
     sid: "",
+    stereo: false,
+    disableRed: false,
   };
 }
 
@@ -1115,6 +1122,12 @@ export const AddTrackRequest = {
     }
     if (message.sid !== "") {
       writer.uint32(90).string(message.sid);
+    }
+    if (message.stereo === true) {
+      writer.uint32(96).bool(message.stereo);
+    }
+    if (message.disableRed === true) {
+      writer.uint32(104).bool(message.disableRed);
     }
     return writer;
   },
@@ -1159,6 +1172,12 @@ export const AddTrackRequest = {
         case 11:
           message.sid = reader.string();
           break;
+        case 12:
+          message.stereo = reader.bool();
+          break;
+        case 13:
+          message.disableRed = reader.bool();
+          break;
         default:
           reader.skipType(tag & 7);
           break;
@@ -1182,6 +1201,8 @@ export const AddTrackRequest = {
         ? object.simulcastCodecs.map((e: any) => SimulcastCodec.fromJSON(e))
         : [],
       sid: isSet(object.sid) ? String(object.sid) : "",
+      stereo: isSet(object.stereo) ? Boolean(object.stereo) : false,
+      disableRed: isSet(object.disableRed) ? Boolean(object.disableRed) : false,
     };
   },
 
@@ -1206,6 +1227,8 @@ export const AddTrackRequest = {
       obj.simulcastCodecs = [];
     }
     message.sid !== undefined && (obj.sid = message.sid);
+    message.stereo !== undefined && (obj.stereo = message.stereo);
+    message.disableRed !== undefined && (obj.disableRed = message.disableRed);
     return obj;
   },
 
@@ -1222,6 +1245,8 @@ export const AddTrackRequest = {
     message.layers = object.layers?.map((e) => VideoLayer.fromPartial(e)) || [];
     message.simulcastCodecs = object.simulcastCodecs?.map((e) => SimulcastCodec.fromPartial(e)) || [];
     message.sid = object.sid ?? "";
+    message.stereo = object.stereo ?? false;
+    message.disableRed = object.disableRed ?? false;
     return message;
   },
 };
@@ -1820,7 +1845,7 @@ export const UpdateSubscription = {
 };
 
 function createBaseUpdateTrackSettings(): UpdateTrackSettings {
-  return { trackSids: [], disabled: false, quality: 0, width: 0, height: 0 };
+  return { trackSids: [], disabled: false, quality: 0, width: 0, height: 0, fps: 0 };
 }
 
 export const UpdateTrackSettings = {
@@ -1839,6 +1864,9 @@ export const UpdateTrackSettings = {
     }
     if (message.height !== 0) {
       writer.uint32(48).uint32(message.height);
+    }
+    if (message.fps !== 0) {
+      writer.uint32(56).uint32(message.fps);
     }
     return writer;
   },
@@ -1865,6 +1893,9 @@ export const UpdateTrackSettings = {
         case 6:
           message.height = reader.uint32();
           break;
+        case 7:
+          message.fps = reader.uint32();
+          break;
         default:
           reader.skipType(tag & 7);
           break;
@@ -1880,6 +1911,7 @@ export const UpdateTrackSettings = {
       quality: isSet(object.quality) ? videoQualityFromJSON(object.quality) : 0,
       width: isSet(object.width) ? Number(object.width) : 0,
       height: isSet(object.height) ? Number(object.height) : 0,
+      fps: isSet(object.fps) ? Number(object.fps) : 0,
     };
   },
 
@@ -1894,6 +1926,7 @@ export const UpdateTrackSettings = {
     message.quality !== undefined && (obj.quality = videoQualityToJSON(message.quality));
     message.width !== undefined && (obj.width = Math.round(message.width));
     message.height !== undefined && (obj.height = Math.round(message.height));
+    message.fps !== undefined && (obj.fps = Math.round(message.fps));
     return obj;
   },
 
@@ -1904,6 +1937,7 @@ export const UpdateTrackSettings = {
     message.quality = object.quality ?? 0;
     message.width = object.width ?? 0;
     message.height = object.height ?? 0;
+    message.fps = object.fps ?? 0;
     return message;
   },
 };

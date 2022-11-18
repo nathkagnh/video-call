@@ -39,12 +39,14 @@ type Room struct {
 	lock sync.RWMutex
 
 	protoRoom *livekit.Room
+	internal  *livekit.RoomInternal
 	Logger    logger.Logger
 
-	config      WebRTCConfig
-	audioConfig *config.AudioConfig
-	serverInfo  *livekit.ServerInfo
-	telemetry   telemetry.TelemetryService
+	config         WebRTCConfig
+	audioConfig    *config.AudioConfig
+	serverInfo     *livekit.ServerInfo
+	telemetry      telemetry.TelemetryService
+	egressLauncher EgressLauncher
 
 	// map of identity -> Participant
 	participants    map[livekit.ParticipantIdentity]types.LocalParticipant
@@ -73,17 +75,21 @@ type ParticipantOptions struct {
 
 func NewRoom(
 	room *livekit.Room,
+	internal *livekit.RoomInternal,
 	config WebRTCConfig,
 	audioConfig *config.AudioConfig,
 	serverInfo *livekit.ServerInfo,
 	telemetry telemetry.TelemetryService,
+	egressLauncher EgressLauncher,
 ) *Room {
 	r := &Room{
 		protoRoom:       proto.Clone(room).(*livekit.Room),
+		internal:        internal,
 		Logger:          LoggerWithRoom(logger.GetDefaultLogger(), livekit.RoomName(room.Name), livekit.RoomID(room.Sid)),
 		config:          config,
 		audioConfig:     audioConfig,
 		telemetry:       telemetry,
+		egressLauncher:  egressLauncher,
 		serverInfo:      serverInfo,
 		participants:    make(map[livekit.ParticipantIdentity]types.LocalParticipant),
 		participantOpts: make(map[livekit.ParticipantIdentity]*ParticipantOptions),
@@ -188,6 +194,10 @@ func (r *Room) LastLeftAt() int64 {
 	return r.leftAt.Load()
 }
 
+func (r *Room) Internal() *livekit.RoomInternal {
+	return r.internal
+}
+
 func (r *Room) Hold() bool {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -251,7 +261,10 @@ func (r *Room) Join(participant types.LocalParticipant, opts *ParticipantOptions
 			// start the workers once connectivity is established
 			p.Start()
 
-			r.telemetry.ParticipantActive(context.Background(), r.ToProto(), p.ToProto(), &livekit.AnalyticsClientMeta{ClientConnectTime: uint32(time.Since(p.ConnectedAt()).Milliseconds())})
+			r.telemetry.ParticipantActive(context.Background(), r.ToProto(), p.ToProto(), &livekit.AnalyticsClientMeta{
+				ClientConnectTime: uint32(time.Since(p.ConnectedAt()).Milliseconds()),
+				ConnectionType:    string(p.GetICEConnectionType()),
+			})
 		} else if state == livekit.ParticipantInfo_DISCONNECTED {
 			// remove participant from room
 			go r.RemoveParticipant(p.Identity(), types.ParticipantCloseReasonStateDisconnected)
@@ -356,19 +369,19 @@ func (r *Room) RemoveParticipant(identity livekit.ParticipantIdentity, reason ty
 		}
 	}
 
-	activeRecording := false
-	if (p != nil && p.IsRecorder()) || p == nil && r.protoRoom.ActiveRecording {
+	if (p != nil && p.IsRecorder()) || r.protoRoom.ActiveRecording {
+		activeRecording := false
 		for _, op := range r.participants {
 			if op.IsRecorder() {
 				activeRecording = true
 				break
 			}
 		}
-	}
 
-	if r.protoRoom.ActiveRecording != activeRecording {
-		r.protoRoom.ActiveRecording = activeRecording
-		r.sendRoomUpdateLocked()
+		if r.protoRoom.ActiveRecording != activeRecording {
+			r.protoRoom.ActiveRecording = activeRecording
+			r.sendRoomUpdateLocked()
+		}
 	}
 	r.lock.Unlock()
 
@@ -690,8 +703,6 @@ func (r *Room) onTrackPublished(participant types.LocalParticipant, track types.
 	r.broadcastParticipantState(participant, broadcastOptions{skipSource: true})
 
 	r.lock.RLock()
-	defer r.lock.RUnlock()
-
 	// subscribe all existing participants to this MediaTrack
 	for _, existingParticipant := range r.participants {
 		if existingParticipant == participant {
@@ -707,19 +718,39 @@ func (r *Room) onTrackPublished(participant types.LocalParticipant, track types.
 		}
 
 		r.Logger.Debugw("subscribing to new track",
-			"participants", []livekit.ParticipantIdentity{participant.Identity(), existingParticipant.Identity()},
-			"pIDs", []livekit.ParticipantID{participant.ID(), existingParticipant.ID()},
+			"participant", existingParticipant.Identity(),
+			"pID", existingParticipant.ID(),
+			"publisher", participant.Identity(),
+			"publisherID", participant.ID(),
 			"trackID", track.ID())
 		if _, err := participant.AddSubscriber(existingParticipant, types.AddSubscriberParams{TrackIDs: []livekit.TrackID{track.ID()}}); err != nil {
 			r.Logger.Errorw("could not subscribe to remoteTrack", err,
-				"participants", []livekit.ParticipantIdentity{participant.Identity(), existingParticipant.Identity()},
-				"pIDs", []livekit.ParticipantID{participant.ID(), existingParticipant.ID()},
+				"participant", existingParticipant.Identity(),
+				"pID", existingParticipant.ID(),
+				"publisher", participant.Identity(),
+				"publisherID", participant.ID(),
 				"trackID", track.ID())
 		}
 	}
 
 	if r.onParticipantChanged != nil {
 		r.onParticipantChanged(participant)
+	}
+	r.lock.RUnlock()
+
+	// auto track egress
+	if r.internal != nil && r.internal.TrackEgress != nil {
+		if err := StartTrackEgress(
+			context.Background(),
+			r.egressLauncher,
+			r.telemetry,
+			r.internal.TrackEgress,
+			track,
+			r.Name(),
+			r.ID(),
+		); err != nil {
+			r.Logger.Errorw("failed to launch track egress", err)
+		}
 	}
 }
 
@@ -787,14 +818,17 @@ func (r *Room) subscribeToExistingTracks(p types.LocalParticipant) int {
 		n, err := op.AddSubscriber(p, types.AddSubscriberParams{AllTracks: true})
 		if err != nil {
 			// TODO: log error? or disconnect?
-			r.Logger.Errorw("could not subscribe to participant", err,
-				"participants", []livekit.ParticipantIdentity{op.Identity(), p.Identity()},
-				"pIDs", []livekit.ParticipantID{op.ID(), p.ID()})
+			r.Logger.Errorw("could not subscribe to publisher", err,
+				"participant", p.Identity(),
+				"pID", p.ID(),
+				"publisher", op.Identity(),
+				"publisherID", op.ID(),
+			)
 		}
 		tracksAdded += n
 	}
 	if tracksAdded > 0 {
-		r.Logger.Debugw("subscribed participants to existing tracks", "tracks", tracksAdded)
+		r.Logger.Debugw("subscribed participants to existing tracks", "trackID", tracksAdded)
 	}
 	return tracksAdded
 }

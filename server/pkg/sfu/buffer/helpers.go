@@ -3,9 +3,6 @@ package buffer
 import (
 	"encoding/binary"
 	"errors"
-	"time"
-
-	"github.com/pion/rtp/codecs"
 
 	"github.com/livekit/protocol/logger"
 )
@@ -225,7 +222,7 @@ func IsH264Keyframe(payload []byte) bool {
 		return false
 	} else if nalu <= 23 {
 		// simple NALU
-		return nalu == 5
+		return nalu == 7
 	} else if nalu == 24 || nalu == 25 || nalu == 26 || nalu == 27 {
 		// STAP-A, STAP-B, MTAP16 or MTAP24
 		i := 1
@@ -277,30 +274,6 @@ func IsH264Keyframe(payload []byte) bool {
 		return payload[1]&0x1F == 7
 	}
 	return false
-}
-
-// IsAV1Keyframe detects if vp9 payload is a keyframe
-// taken from https://github.com/jech/galene/blob/master/codecs/codecs.go
-// all credits belongs to Juliusz Chroboczek @jech and the awesome Galene SFU
-func IsVp9Keyframe(payload []byte) bool {
-	var vp9 codecs.VP9Packet
-	_, err := vp9.Unmarshal(payload)
-	if err != nil || len(vp9.Payload) < 1 {
-		return false
-	}
-	if !vp9.B {
-		return false
-	}
-
-	if (vp9.Payload[0] & 0xc0) != 0x80 {
-		return false
-	}
-
-	profile := (vp9.Payload[0] >> 4) & 0x3
-	if profile != 3 {
-		return (vp9.Payload[0] & 0xC) == 0
-	}
-	return (vp9.Payload[0] & 0x6) == 0
 }
 
 // IsAV1Keyframe detects if av1 payload is a keyframe
@@ -379,36 +352,3 @@ func IsAV1Keyframe(payload []byte) bool {
 }
 
 // -------------------------------------
-
-var (
-	ntpEpoch = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
-)
-
-type NtpTime uint64
-
-func (t NtpTime) Duration() time.Duration {
-	sec := (t >> 32) * 1e9
-	frac := (t & 0xffffffff) * 1e9
-	nsec := frac >> 32
-	if uint32(frac) >= 0x80000000 {
-		nsec++
-	}
-	return time.Duration(sec + nsec)
-}
-
-func (t NtpTime) Time() time.Time {
-	return ntpEpoch.Add(t.Duration())
-}
-
-func ToNtpTime(t time.Time) NtpTime {
-	nsec := uint64(t.Sub(ntpEpoch))
-	sec := nsec / 1e9
-	nsec = (nsec - sec*1e9) << 32
-	frac := nsec / 1e9
-	if nsec%1e9 >= 1e9/2 {
-		frac++
-	}
-	return NtpTime(sec<<32 | frac)
-}
-
-// ------------------------------------------

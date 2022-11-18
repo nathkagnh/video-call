@@ -11,7 +11,6 @@ import (
 	"github.com/livekit/protocol/logger"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
-	"github.com/livekit/livekit-server/pkg/utils"
 )
 
 const (
@@ -82,7 +81,7 @@ func (cs *ConnectionStats) Start(trackInfo *livekit.TrackInfo) {
 		cs.normFactors[0] = MaxScore / AudioTrackScore(params, 1)
 	} else {
 		for _, layer := range cs.trackInfo.Layers {
-			spatial := utils.SpatialLayerForQuality(layer.Quality)
+			spatial := buffer.VideoQualityToSpatialLayer(layer.Quality, cs.trackInfo)
 			// LK-TODO: would be good to have expected frame rate in Trackinfo
 			frameRate := uint32(30)
 			switch spatial {
@@ -99,7 +98,7 @@ func (cs *ConnectionStats) Start(trackInfo *livekit.TrackInfo) {
 				Height:   layer.Height,
 				Frames:   frameRate,
 			}
-			cs.normFactors[utils.SpatialLayerForQuality(layer.Quality)] = MaxScore / VideoTrackScore(params, 1)
+			cs.normFactors[spatial] = MaxScore / VideoTrackScore(params, 1)
 		}
 	}
 	cs.lock.Unlock()
@@ -132,7 +131,7 @@ func (cs *ConnectionStats) getLayerDimensions(layer int32) (uint32, uint32) {
 	}
 
 	for _, l := range cs.trackInfo.Layers {
-		if layer == utils.SpatialLayerForQuality(l.Quality) {
+		if layer == buffer.VideoQualityToSpatialLayer(l.Quality, cs.trackInfo) {
 			return l.Width, l.Height
 		}
 	}
@@ -153,21 +152,22 @@ func (cs *ConnectionStats) updateScore(streams map[uint32]*buffer.StreamStatsWit
 
 	cs.lastUpdate = time.Now()
 
+	var params TrackScoreParams
 	switch {
 	case cs.trackInfo.Type == livekit.TrackType_AUDIO:
 		maxAvailableLayer, maxAvailableLayerStats := getMaxAvailableLayerStats(streams, 0)
 		if maxAvailableLayerStats == nil {
 			// retain old score as stats will not be available when muted
-			return cs.score
+			break
 		}
 
-		params := getTrackScoreParams(cs.codecName, maxAvailableLayerStats)
+		params = getTrackScoreParams(cs.codecName, maxAvailableLayerStats)
 		packetRate := float64(params.PacketsExpected) / maxAvailableLayerStats.Duration.Seconds()
 		if packetRate < audioPacketRateThreshold {
 			// With DTX, it is possible to have fewer packets per second.
 			// A loss with reduced packet rate has amplified negative effect on quality.
 			// Opus uses 20 ms packetisation (50 pps). Calculate score only if packet rate is at least half of that.
-			return cs.score
+			break
 		}
 
 		normFactor := float32(1)
@@ -194,7 +194,7 @@ func (cs *ConnectionStats) updateScore(streams map[uint32]*buffer.StreamStatsWit
 				// if not expecting data, reset the score to maximum
 				cs.score = MaxScore
 			}
-			return cs.score
+			break
 		}
 
 		cs.maxExpectedLayer = maxExpectedLayer
@@ -202,10 +202,10 @@ func (cs *ConnectionStats) updateScore(streams map[uint32]*buffer.StreamStatsWit
 		maxAvailableLayer, maxAvailableLayerStats := getMaxAvailableLayerStats(streams, maxExpectedLayer)
 		if maxAvailableLayerStats == nil {
 			// retain old score as stats will not be available when muted
-			return cs.score
+			break
 		}
 
-		params := getTrackScoreParams(cs.codecName, maxAvailableLayerStats)
+		params = getTrackScoreParams(cs.codecName, maxAvailableLayerStats)
 
 		// for muxed tracks, i. e. simulcast publisher muxed into a single track,
 		// use the current spatial layer.
@@ -215,19 +215,18 @@ func (cs *ConnectionStats) updateScore(streams map[uint32]*buffer.StreamStatsWit
 		// using the current and maximum is a reasonable approximation.
 		if cs.params.GetCurrentLayerSpatial != nil {
 			maxAvailableLayer = cs.params.GetCurrentLayerSpatial()
+			if maxAvailableLayer == buffer.InvalidLayerSpatial {
+				// retain old score as stats will not be available if not forwarding
+				break
+			}
 		}
 		params.Width, params.Height = cs.getLayerDimensions(maxAvailableLayer)
-		if params.Width == 0 || params.Height == 0 {
-			cs.params.Logger.Warnw("could not get dimensions", nil, "maxAvailableLayer", maxAvailableLayer)
-			return cs.score
-		}
-
-		if cs.trackInfo.Source == livekit.TrackSource_SCREEN_SHARE {
+		if cs.trackInfo.Source == livekit.TrackSource_SCREEN_SHARE || params.Width == 0 || params.Height == 0 {
 			if cs.params.GetIsReducedQuality != nil {
 				_, params.IsReducedQuality = cs.params.GetIsReducedQuality()
 			}
 
-			cs.score = ScreenshareTrackScore(params)
+			cs.score = LossBasedTrackScore(params)
 		} else {
 			normFactor := float32(1)
 			if int(maxAvailableLayer) < len(cs.normFactors) {
@@ -243,15 +242,15 @@ func (cs *ConnectionStats) updateScore(streams map[uint32]*buffer.StreamStatsWit
 				cs.score = float32(clamp(float64(cs.score), float64(MinScore), float64(MaxScore)))
 			}
 		}
+	}
 
-		if cs.score < 3.5 {
-			if !cs.isLowQuality.Swap(true) {
-				// changed from good to low quality, log
-				cs.params.Logger.Debugw("low connection quality", "score", cs.score, "params", params)
-			}
-		} else {
-			cs.isLowQuality.Store(false)
+	if cs.score < 4.2 {
+		if !cs.isLowQuality.Swap(true) {
+			// changed from good to low quality, log
+			cs.params.Logger.Infow("low connection quality", "score", cs.score, "params", params)
 		}
+	} else {
+		cs.isLowQuality.Store(false)
 	}
 
 	return cs.score

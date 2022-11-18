@@ -29,6 +29,7 @@ import SimpleBar from "simplebar";
 import { Buffer } from "buffer";
 import fscreen from "fscreen";
 
+
 const $ = (id: string) => document.getElementById(id);
 const API_URL = "https://meeting.fptonline.net";
 const WSS_URL = "wss://wss-meeting.fptonline.net";
@@ -347,6 +348,12 @@ const appActions = {
     shouldPublish?: boolean,
   ): Promise<Room | undefined> => {
     const room = new Room(roomOptions);
+
+    startTime = Date.now();
+    await room.prepareConnection(url);
+    const prewarmTime = Date.now() - startTime;
+    appendLog(`prewarmed connection in ${prewarmTime}ms`);
+
     room
       .on(RoomEvent.ParticipantConnected, participantConnected)
       .on(RoomEvent.ParticipantDisconnected, participantDisconnected)
@@ -428,6 +435,8 @@ const appActions = {
         }
       })
       .on(RoomEvent.SignalConnected, async () => {
+        const signalConnectionTime = Date.now() - startTime;
+        appendLog(`signal connection established in ${signalConnectionTime}ms`);
         if (shouldPublish) {
           await Promise.all([
             room.localParticipant.setCameraEnabled(joinCam),
@@ -446,7 +455,6 @@ const appActions = {
       });
 
     try {
-      startTime = Date.now();
       await room.connect(url, token, connectOptions);
       const elapsed = Date.now() - startTime;
       appendLog(
@@ -1038,16 +1046,16 @@ function handleRoomDisconnect(reason?: DisconnectReason) {
   if (!currentRoom) return;
   appendLog('disconnected from room', { reason });
   setButtonsForState(false);
-  renderParticipant(currentRoom.localParticipant, true);
-  currentRoom.participants.forEach((p) => {
-    renderParticipant(p, true);
-  });
-  renderScreenShare(currentRoom);
+  // renderParticipant(currentRoom.localParticipant, true);
+  // currentRoom.participants.forEach((p) => {
+  //   renderParticipant(p, true);
+  // });
+  // renderScreenShare(currentRoom);
   (<HTMLDivElement>document.querySelector(".page-video-call")).innerHTML = '<div class="container"><p style="text-align: center">Leaving the meeting...</p></div>';
 
-  currentRoom = undefined;
-  window.currentRoom = undefined;
-  window.location.reload();
+  // currentRoom = undefined;
+  // window.currentRoom = undefined;
+  window.location.href = window.location.href;
 }
 
 // -------------------------- rendering helpers ----------------------------- //
@@ -1499,28 +1507,18 @@ async function handleDevicesChanged() {
       const devices = await Room.getLocalDevices(kind);
       console.log(id);
       const element = <HTMLSelectElement>$(id);
-      populateSelect(kind, element, devices, state.defaultDevices.get(kind));
+      populateSelect(element, devices, state.defaultDevices.get(kind));
     }),
   );
 }
 
 function populateSelect(
-  kind: MediaDeviceKind,
   element: HTMLSelectElement,
   devices: MediaDeviceInfo[],
   selectedDeviceId?: string,
 ) {
   // clear all elements
   element.innerHTML = '';
-  const initialOption = document.createElement('option');
-  if (kind === 'audioinput') {
-    initialOption.text = 'Audio Input (default)';
-  } else if (kind === 'videoinput') {
-    initialOption.text = 'Video Input (default)';
-  } else if (kind === 'audiooutput') {
-    initialOption.text = 'Audio Output (default)';
-  }
-  element.appendChild(initialOption);
 
   for (const device of devices) {
     const option = document.createElement('option');
@@ -1574,7 +1572,7 @@ async function acquireDeviceList(id: string) {
     const devices = await Room.getLocalDevices(kind);
     console.log(id);
     const element = <HTMLSelectElement>$(id);
-    populateSelect(kind, element, devices, state.defaultDevices.get(kind));
+    populateSelect(element, devices, state.defaultDevices.get(kind));
   }
 }
 

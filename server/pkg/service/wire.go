@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/wire"
+	"github.com/pion/turn/v2"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 
@@ -44,16 +45,19 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		telemetry.NewTelemetryService,
 		egress.NewRedisRPCClient,
 		getEgressStore,
+		NewEgressLauncher,
 		NewEgressService,
 		ingress.NewRedisRPC,
 		getIngressStore,
+		getIngressConfig,
+		getIngressRPCClient,
 		NewIngressService,
 		NewRoomAllocator,
 		NewRoomService,
 		NewRTCService,
 		NewLocalRoomManager,
 		newTurnAuthHandler,
-		NewTurnServer,
+		newInProcessTurnServer,
 		NewLivekitServer,
 	)
 	return &LivekitServer{}, nil
@@ -113,12 +117,12 @@ func createWebhookNotifier(conf *config.Config, provider auth.KeyProvider) (webh
 	return webhook.NewNotifier(wc.APIKey, secret, wc.URLs), nil
 }
 
-func createRedisClient(conf *config.Config) (*redis.Client, error) {
+func createRedisClient(conf *config.Config) (redis.UniversalClient, error) {
 	if !conf.HasRedis() {
 		return nil, nil
 	}
 
-	var rc *redis.Client
+	var rc redis.UniversalClient
 	var tlsConfig *tls.Config
 
 	if conf.Redis.UseTLS {
@@ -163,7 +167,7 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 	return rc, nil
 }
 
-func createStore(rc *redis.Client) ObjectStore {
+func createStore(rc redis.UniversalClient) ObjectStore {
 	if rc != nil {
 		return NewRedisStore(rc)
 	}
@@ -188,10 +192,22 @@ func getIngressStore(s ObjectStore) IngressStore {
 	}
 }
 
+func getIngressConfig(conf *config.Config) *config.IngressConfig {
+	return &conf.Ingress
+}
+
+func getIngressRPCClient(rpc ingress.RPC) ingress.RPCClient {
+	return rpc
+}
+
 func createClientConfiguration() clientconfiguration.ClientConfigurationManager {
 	return clientconfiguration.NewStaticClientConfigurationManager(clientconfiguration.StaticConfigurations)
 }
 
 func getRoomConf(config *config.Config) config.RoomConfig {
 	return config.Room
+}
+
+func newInProcessTurnServer(conf *config.Config, authHandler turn.AuthHandler) (*turn.Server, error) {
+	return NewTurnServer(conf, authHandler, false)
 }

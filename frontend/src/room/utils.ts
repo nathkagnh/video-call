@@ -34,6 +34,40 @@ export function supportsDynacast() {
   return supportsTransceiver();
 }
 
+export function supportsAV1(): boolean {
+  const capabilities = RTCRtpReceiver.getCapabilities('video');
+  let hasAV1 = false;
+  let hasDDExt = false;
+  if (capabilities) {
+    for (const codec of capabilities.codecs) {
+      if (codec.mimeType === 'video/AV1') {
+        hasAV1 = true;
+        break;
+      }
+    }
+    for (const ext of capabilities.headerExtensions) {
+      if (
+        ext.uri ===
+        'https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension'
+      ) {
+        hasDDExt = true;
+        break;
+      }
+    }
+  }
+  return hasAV1 && hasDDExt;
+}
+
+export function supportsSetSinkId(elm?: HTMLMediaElement): boolean {
+  if (!document) {
+    return false;
+  }
+  if (!elm) {
+    elm = document.createElement('audio');
+  }
+  return 'setSinkId' in elm;
+}
+
 const setCodecPreferencesVersions: { [key: string]: string } = {
   Chrome: '100',
   Chromium: '100',
@@ -182,16 +216,23 @@ export function getEmptyAudioStreamTrack() {
 export class Future<T> {
   promise: Promise<T>;
 
-  resolve!: (arg: T) => void;
+  resolve?: (arg: T) => void;
 
-  reject!: (e: any) => void;
+  reject?: (e: any) => void;
 
-  constructor(promise?: Promise<T>) {
-    this.promise =
-      promise ??
-      new Promise<T>((resolve, reject) => {
-        this.resolve = resolve;
-        this.reject = reject;
-      });
+  onFinally?: () => void;
+
+  constructor(
+    futureBase?: (resolve: (arg: T) => void, reject: (e: any) => void) => void,
+    onFinally?: () => void,
+  ) {
+    this.onFinally = onFinally;
+    this.promise = new Promise<T>(async (resolve, reject) => {
+      this.resolve = resolve;
+      this.reject = reject;
+      if (futureBase) {
+        await futureBase(resolve, reject);
+      }
+    }).finally(() => this.onFinally?.());
   }
 }

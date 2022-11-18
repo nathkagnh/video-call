@@ -2,6 +2,7 @@ package rtc
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -18,7 +19,6 @@ import (
 	"github.com/livekit/livekit-server/pkg/sfu"
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
 	"github.com/livekit/livekit-server/pkg/telemetry"
-	"github.com/livekit/livekit-server/pkg/utils"
 )
 
 const (
@@ -26,9 +26,31 @@ const (
 )
 
 var (
-	ErrClosingOrClosed = errors.New("track is closing or closed")
-	ErrNoReceiver      = errors.New("cannot subscribe without a receiver in place")
+	ErrNotOpen    = errors.New("track is not open")
+	ErrNoReceiver = errors.New("cannot subscribe without a receiver in place")
 )
+
+// ------------------------------------------------------
+
+type mediaTrackReceiverState int
+
+const (
+	mediaTrackReceiverStateOpen mediaTrackReceiverState = iota
+	mediaTrackReceiverStateClosed
+)
+
+func (m mediaTrackReceiverState) String() string {
+	switch m {
+	case mediaTrackReceiverStateOpen:
+		return "OPEN"
+	case mediaTrackReceiverStateClosed:
+		return "CLOSED"
+	default:
+		return fmt.Sprintf("%d", int(m))
+	}
+}
+
+//-----------------------------------------------------
 
 type simulcastReceiver struct {
 	sfu.TrackReceiver
@@ -43,6 +65,7 @@ func (r *simulcastReceiver) Priority() int {
 type MediaTrackReceiverParams struct {
 	TrackInfo           *livekit.TrackInfo
 	MediaTrack          types.MediaTrack
+	IsRelayed           bool
 	ParticipantID       livekit.ParticipantID
 	ParticipantIdentity livekit.ParticipantIdentity
 	ParticipantVersion  uint32
@@ -65,8 +88,7 @@ type MediaTrackReceiver struct {
 	layerDimensions    map[livekit.VideoQuality]*livekit.VideoLayer
 	potentialCodecs    []webrtc.RTPCodecParameters
 	pendingSubscribeOp map[livekit.ParticipantID]int
-	isClosing          bool
-	isClosed           bool
+	state              mediaTrackReceiverState
 
 	onSetupReceiver     func(mime string)
 	onMediaLossFeedback func(dt *sfu.DownTrack, report *rtcp.ReceiverReport)
@@ -82,10 +104,12 @@ func NewMediaTrackReceiver(params MediaTrackReceiverParams) *MediaTrackReceiver 
 		trackInfo:          proto.Clone(params.TrackInfo).(*livekit.TrackInfo),
 		layerDimensions:    make(map[livekit.VideoQuality]*livekit.VideoLayer),
 		pendingSubscribeOp: make(map[livekit.ParticipantID]int),
+		state:              mediaTrackReceiverStateOpen,
 	}
 
 	t.MediaTrackSubscriptions = NewMediaTrackSubscriptions(MediaTrackSubscriptionsParams{
 		MediaTrack:       params.MediaTrack,
+		IsRelayed:        params.IsRelayed,
 		BufferFactory:    params.BufferFactory,
 		ReceiverConfig:   params.ReceiverConfig,
 		SubscriberConfig: params.SubscriberConfig,
@@ -116,7 +140,7 @@ func (t *MediaTrackReceiver) Restart() {
 	t.lock.Unlock()
 
 	for _, receiver := range receivers {
-		receiver.SetMaxExpectedSpatialLayer(utils.SpatialLayerForQuality(livekit.VideoQuality_HIGH))
+		receiver.SetMaxExpectedSpatialLayer(buffer.VideoQualityToSpatialLayer(livekit.VideoQuality_HIGH, t.params.TrackInfo))
 	}
 }
 
@@ -128,9 +152,8 @@ func (t *MediaTrackReceiver) OnSetupReceiver(f func(mime string)) {
 
 func (t *MediaTrackReceiver) SetupReceiver(receiver sfu.TrackReceiver, priority int, mid string) {
 	t.lock.Lock()
-
-	if t.isClosing || t.isClosed {
-		t.params.Logger.Warnw("cannot set up receiver on closing or closed track", nil)
+	if t.state != mediaTrackReceiverStateOpen {
+		t.params.Logger.Warnw("cannot set up receiver on a track not open", nil)
 		t.lock.Unlock()
 		return
 	}
@@ -219,7 +242,7 @@ func (t *MediaTrackReceiver) SetLayerSsrc(mime string, rid string, ssrc uint32) 
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	layer := sfu.RidToLayer(rid)
+	layer := buffer.RidToSpatialLayer(rid, t.params.TrackInfo)
 	if layer == sfu.InvalidLayerSpatial {
 		// non-simulcast case will not have `rid`
 		layer = 0
@@ -232,7 +255,7 @@ func (t *MediaTrackReceiver) SetLayerSsrc(mime string, rid string, ssrc uint32) 
 	}
 }
 
-func (t *MediaTrackReceiver) ClearReceiver(mime string) {
+func (t *MediaTrackReceiver) ClearReceiver(mime string, willBeResumed bool) {
 	t.params.Logger.Debugw("clearing receiver", "mime", mime)
 	t.lock.Lock()
 	for idx, receiver := range t.receivers {
@@ -246,10 +269,10 @@ func (t *MediaTrackReceiver) ClearReceiver(mime string) {
 	t.shadowReceiversLocked()
 	t.lock.Unlock()
 
-	t.removeAllSubscribersForMime(mime, false)
+	t.removeAllSubscribersForMime(mime, willBeResumed)
 }
 
-func (t *MediaTrackReceiver) ClearAllReceivers() {
+func (t *MediaTrackReceiver) ClearAllReceivers(willBeResumed bool) {
 	t.params.Logger.Debugw("clearing all receivers")
 	t.lock.Lock()
 	var mimes []string
@@ -262,7 +285,7 @@ func (t *MediaTrackReceiver) ClearAllReceivers() {
 	t.lock.Unlock()
 
 	for _, mime := range mimes {
-		t.ClearReceiver(mime)
+		t.ClearReceiver(mime, willBeResumed)
 	}
 }
 
@@ -276,14 +299,16 @@ func (t *MediaTrackReceiver) OnVideoLayerUpdate(f func(layers []*livekit.VideoLa
 
 func (t *MediaTrackReceiver) TryClose() bool {
 	t.lock.RLock()
-	if t.isClosed {
+	if t.state == mediaTrackReceiverStateClosed {
 		t.lock.RUnlock()
 		return true
 	}
 
-	if len(t.receiversShadow) > 0 {
-		t.lock.RUnlock()
-		return false
+	for _, receiver := range t.receiversShadow {
+		if dr, _ := receiver.TrackReceiver.(*DummyReceiver); dr != nil && dr.Receiver() != nil {
+			t.lock.RUnlock()
+			return false
+		}
 	}
 	t.lock.RUnlock()
 	t.Close()
@@ -292,10 +317,15 @@ func (t *MediaTrackReceiver) TryClose() bool {
 }
 
 func (t *MediaTrackReceiver) Close() {
-	t.lock.RLock()
-	t.isClosed = true
+	t.lock.Lock()
+	if t.state == mediaTrackReceiverStateClosed {
+		t.lock.Unlock()
+		return
+	}
+
+	t.state = mediaTrackReceiverStateClosed
 	onclose := t.onClose
-	t.lock.RUnlock()
+	t.lock.Unlock()
 
 	for _, f := range onclose {
 		f()
@@ -403,7 +433,7 @@ func (t *MediaTrackReceiver) AddSubscriber(sub types.LocalParticipant) error {
 	t.addPendingSubscribeOp(sub.ID())
 
 	trackID := t.ID()
-	sub.EnqueueSubscribeTrack(trackID, t.addSubscriber)
+	sub.EnqueueSubscribeTrack(trackID, t.params.IsRelayed, t.addSubscriber)
 	return nil
 }
 
@@ -415,9 +445,9 @@ func (t *MediaTrackReceiver) addSubscriber(sub types.LocalParticipant) (err erro
 	}()
 
 	t.lock.RLock()
-	if t.isClosing || t.isClosed {
+	if t.state != mediaTrackReceiverStateOpen {
 		t.lock.RUnlock()
-		err = ErrClosingOrClosed
+		err = ErrNotOpen
 		return
 	}
 
@@ -454,7 +484,15 @@ func (t *MediaTrackReceiver) addSubscriber(sub types.LocalParticipant) (err erro
 		streamId = PackStreamID(t.PublisherID(), t.ID())
 	}
 
-	err = t.MediaTrackSubscriptions.AddSubscriber(sub, NewWrappedReceiver(receivers, t.ID(), streamId, potentialCodecs))
+	tLogger := LoggerWithTrack(sub.GetLogger(), t.ID(), t.params.IsRelayed)
+	err = t.MediaTrackSubscriptions.AddSubscriber(sub, NewWrappedReceiver(WrappedReceiverParams{
+		Receivers:      receivers,
+		TrackID:        t.ID(),
+		StreamId:       streamId,
+		UpstreamCodecs: potentialCodecs,
+		Logger:         tLogger,
+		DisableRed:     t.trackInfo.GetDisableRed(),
+	}))
 	if err != nil {
 		return
 	}
@@ -473,7 +511,7 @@ func (t *MediaTrackReceiver) RemoveSubscriber(subscriberID livekit.ParticipantID
 	sub := subTrack.Subscriber()
 	t.addPendingSubscribeOp(sub.ID())
 
-	sub.EnqueueUnsubscribeTrack(subTrack.ID(), willBeResumed, t.removeSubscriber)
+	sub.EnqueueUnsubscribeTrack(subTrack.ID(), t.params.IsRelayed, willBeResumed, t.removeSubscriber)
 }
 
 func (t *MediaTrackReceiver) removeSubscriber(subscriberID livekit.ParticipantID, willBeResumed bool) (err error) {
@@ -488,19 +526,8 @@ func (t *MediaTrackReceiver) removeSubscriber(subscriberID livekit.ParticipantID
 }
 
 func (t *MediaTrackReceiver) removeAllSubscribersForMime(mime string, willBeResumed bool) {
-	t.params.Logger.Infow("removing all subscribers", "mime", mime)
+	t.params.Logger.Infow("removing all subscribers for mime", "mime", mime)
 	for _, subscriberID := range t.MediaTrackSubscriptions.GetAllSubscribersForMime(mime) {
-		t.RemoveSubscriber(subscriberID, willBeResumed)
-	}
-}
-
-func (t *MediaTrackReceiver) InitiateClose(willBeResumed bool) {
-	t.params.Logger.Infow("initiating close")
-	t.lock.Lock()
-	t.isClosing = true
-	t.lock.Unlock()
-
-	for _, subscriberID := range t.MediaTrackSubscriptions.GetAllSubscribers() {
 		t.RemoveSubscriber(subscriberID, willBeResumed)
 	}
 }
@@ -569,9 +596,17 @@ func (t *MediaTrackReceiver) TrackInfo(generateLayer bool) *livekit.TrackInfo {
 					ci.Layers = append(ci.Layers, proto.Clone(layer).(*livekit.VideoLayer))
 
 					// if origin layer has ssrc, don't override it
-					if layerIdx < len(originLayers) && originLayers[layerIdx].Ssrc != 0 {
-						ci.Layers[layerIdx].Ssrc = originLayers[layerIdx].Ssrc
-					} else if int(layer.Quality) < len(receiver.layerSSRCs) {
+					ssrcFound := false
+					for _, l := range originLayers {
+						if l.Quality == ci.Layers[layerIdx].Quality {
+							if l.Ssrc != 0 {
+								ci.Layers[layerIdx].Ssrc = l.Ssrc
+								ssrcFound = true
+							}
+							break
+						}
+					}
+					if !ssrcFound && int(layer.Quality) < len(receiver.layerSSRCs) {
 						ci.Layers[layerIdx].Ssrc = receiver.layerSSRCs[layer.Quality]
 					}
 				}
@@ -593,9 +628,17 @@ func (t *MediaTrackReceiver) TrackInfo(generateLayer bool) *livekit.TrackInfo {
 			ti.Layers = append(ti.Layers, proto.Clone(layer).(*livekit.VideoLayer))
 
 			// if origin layer has ssrc, don't override it
-			if layerIdx < len(originLayers) && originLayers[layerIdx].Ssrc != 0 {
-				ti.Layers[layerIdx].Ssrc = originLayers[layerIdx].Ssrc
-			} else if int(layer.Quality) < len(receiver.layerSSRCs) {
+			ssrcFound := false
+			for _, l := range originLayers {
+				if l.Quality == ti.Layers[layerIdx].Quality {
+					if l.Ssrc != 0 {
+						ti.Layers[layerIdx].Ssrc = l.Ssrc
+						ssrcFound = true
+					}
+					break
+				}
+			}
+			if !ssrcFound && int(layer.Quality) < len(receiver.layerSSRCs) {
 				ti.Layers[layerIdx].Ssrc = receiver.layerSSRCs[layer.Quality]
 			}
 		}
@@ -773,15 +816,20 @@ func (t *MediaTrackReceiver) SetRTT(rtt uint32) {
 	}
 }
 
-// ---------------------------
-
-func VideoQualityToRID(q livekit.VideoQuality) string {
-	switch q {
-	case livekit.VideoQuality_HIGH:
-		return sfu.FullResolution
-	case livekit.VideoQuality_MEDIUM:
-		return sfu.HalfResolution
-	default:
-		return sfu.QuarterResolution
+func (t *MediaTrackReceiver) GetTemporalLayerForSpatialFps(spatial int32, fps uint32, mime string) int32 {
+	receiver := t.Receiver(mime)
+	if receiver == nil {
+		return buffer.DefaultMaxLayerTemporal
 	}
+
+	layerFps := receiver.GetTemporalLayerFpsForSpatial(spatial)
+	requestFps := float32(fps) * layerSelectionTolerance
+	for i, f := range layerFps {
+		if requestFps <= f {
+			return int32(i)
+		}
+	}
+	return buffer.DefaultMaxLayerTemporal
 }
+
+// ---------------------------

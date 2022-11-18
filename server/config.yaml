@@ -35,17 +35,14 @@ rtc:
   # this is useful for cloud environments such as AWS & Google where hosts have an internal IP
   # that maps to an external one
   use_external_ip: false
-  # when set to true, server will use a lite ice agent, that will speed up ice connection, but 
-  # might cause connect issue if server running behind NAT.
-  # use_ice_lite: true
-  # when set, LiveKit will attempt to use a UDP mux so all UDP traffic goes through
-  # a single port. This simplifies deployment, but mux will become an overhead for
-  # highly trafficked deployments.
-  # port_range_start & end must not be set for this config to take effect
+  # # when set, LiveKit will attempt to use a UDP mux so all UDP traffic goes through
+  # # a single port. This simplifies deployment, but mux will become an overhead for
+  # # highly trafficked deployments.
+  # # port_range_start & end must not be set for this config to take effect
   # udp_port: 7882
-  # optional settings
-  # # number of packets to buffer in the SFU, defaults to 500
-  # packet_buffer_size: 500
+  # # when set to true, server will use a lite ice agent, that will speed up ice connection, but
+  # # might cause connect issue if server running behind NAT.
+  # use_ice_lite: true
   # # optional STUN servers for LiveKit clients to use. Clients will be configured to use these STUN servers automatically.
   # # by default LiveKit clients use Google's public STUN servers
   # stun_servers:
@@ -65,6 +62,10 @@ rtc:
   #   # in the unlikely event of highly congested networks, SFU may choose to pause some tracks
   #   # in order to allow others to stream smoothly. You can disable this behavior here
   #   allow_pause: true
+  # # allows automatic connection fallback to TCP and TURN/TLS (if configured) when UDP has been unstable, default true
+  # allow_tcp_fallback: true
+  # # number of packets to buffer in the SFU, defaults to 500
+  # packet_buffer_size: 500
   # # minimum amount of time between pli/fir rtcp packets being sent to an individual
   # # producer. Increasing these times can lead to longer black screens when new participants join,
   # # while reducing them can lead to higher stream bitrate.
@@ -74,13 +75,20 @@ rtc:
   #   high_quality: 1s
   # # network interface filter. If the machine has more than one network interface and you'd like it to use or skip specific interfaces
   # # both inclusion and exclusion filters can be used together. If neither is defined (default), all interfaces on the machine will be used.
-  # # If both of them are set, then only interfaces that satisfy both filters will be used.
-  # # If an interface is present in both lists, include takes precedence.
+  # # If both of them are set, then only include takes effect.
   # interfaces:
   #   includes:
   #     - en0
   #   excludes:
   #     - docker0
+  # # ip address filter. If the machine has more than one ip address and you'd like it to use or skip specific ips,
+  # # both inclusion and exclusion CIDR filters can be used together. If neither is defined (default), all ip on the machine will be used.
+  # # If both of them are set, then only include takes effect.
+  # ips:
+  #   includes:
+  #     - 10.0.0.0/16
+  #   excludes:
+  #     - 192.168.1.0/24
 
 # when enabled, LiveKit will expose prometheus metrics on :6789/metrics
 prometheus_port: 6789
@@ -94,7 +102,7 @@ keys:
 
 # Logging config
 logging:
-#   # log level, valid values: debug, info, warning, error
+#   # log level, valid values: debug, info, warn, error
   level: info
 #   # log level for pion, default error
   pion_level: error
@@ -117,7 +125,7 @@ room:
 #   max_participants: 0
 #   # only accept specific codecs for clients publishing to this room
 #   # this is useful to standardize codecs across clients
-#   # other supported codecs are video/h264, video/vp9
+#   # other supported codecs are video/h264
 #   enabled_codecs:
 #     - mime: audio/opus
 #     - mime: video/vp8

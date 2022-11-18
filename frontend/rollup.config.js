@@ -7,6 +7,7 @@ import json from '@rollup/plugin-json';
 import { terser } from 'rollup-plugin-terser';
 import replace from 'rollup-plugin-re';
 import filesize from 'rollup-plugin-filesize';
+import del from 'rollup-plugin-delete';
 
 import packageJson from './package.json';
 
@@ -35,13 +36,15 @@ export default {
     },
   ],
   plugins: [
+    del({ targets: 'dist/*' }),
     nodeResolve({ browser: true, preferBuiltins: false }),
     typescript({ tsconfig: './tsconfig.json' }),
     commonjs(),
     json(),
     babel({
       babelHelpers: 'bundled',
-      presets: [['@babel/preset-env', { include: ['@babel/plugin-proposal-object-rest-spread'] }]],
+      plugins: ['@babel/plugin-proposal-object-rest-spread'],
+      presets: ['@babel/preset-env'],
       extensions: ['.js', '.ts', '.mjs'],
     }),
     replace({

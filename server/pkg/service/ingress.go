@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -15,9 +16,14 @@ import (
 	"github.com/livekit/protocol/utils"
 )
 
+var (
+	initialTimeout = time.Second * 3
+	retryTimeout   = time.Minute * 1
+)
+
 type IngressService struct {
 	conf        *config.IngressConfig
-	rpc         ingress.RPC
+	rpcClient   ingress.RPCClient
 	store       IngressStore
 	roomService livekit.RoomService
 	telemetry   telemetry.TelemetryService
@@ -25,16 +31,16 @@ type IngressService struct {
 }
 
 func NewIngressService(
-	conf *config.Config,
-	rpc ingress.RPC,
+	conf *config.IngressConfig,
+	rpcClient ingress.RPCClient,
 	store IngressStore,
 	rs livekit.RoomService,
 	ts telemetry.TelemetryService,
 ) *IngressService {
 
 	return &IngressService{
-		conf:        &conf.Ingress,
-		rpc:         rpc,
+		conf:        conf,
+		rpcClient:   rpcClient,
 		store:       store,
 		roomService: rs,
 		telemetry:   ts,
@@ -43,7 +49,7 @@ func NewIngressService(
 }
 
 func (s *IngressService) Start() {
-	if s.rpc != nil {
+	if s.rpcClient != nil {
 		go s.updateWorker()
 		go s.entitiesWorker()
 	}
@@ -54,12 +60,13 @@ func (s *IngressService) Stop() {
 }
 
 func (s *IngressService) CreateIngress(ctx context.Context, req *livekit.CreateIngressRequest) (*livekit.IngressInfo, error) {
-	roomName, err := EnsureJoinPermission(ctx)
+	return s.CreateIngressWithUrlPrefix(ctx, s.conf.RTMPBaseURL, req)
+}
+
+func (s *IngressService) CreateIngressWithUrlPrefix(ctx context.Context, urlPrefix string, req *livekit.CreateIngressRequest) (*livekit.IngressInfo, error) {
+	err := EnsureIngressAdminPermission(ctx)
 	if err != nil {
 		return nil, twirpAuthError(err)
-	}
-	if req.RoomName != "" && req.RoomName != string(roomName) {
-		return nil, twirpAuthError(ErrPermissionDenied)
 	}
 
 	sk := utils.NewGuid("")
@@ -68,7 +75,7 @@ func (s *IngressService) CreateIngress(ctx context.Context, req *livekit.CreateI
 		IngressId:           utils.NewGuid(utils.IngressPrefix),
 		Name:                req.Name,
 		StreamKey:           sk,
-		Url:                 newRtmpUrl(s.conf.RTMPBaseURL, sk),
+		Url:                 newRtmpUrl(urlPrefix, sk),
 		InputType:           req.InputType,
 		Audio:               req.Audio,
 		Video:               req.Video,
@@ -76,9 +83,7 @@ func (s *IngressService) CreateIngress(ctx context.Context, req *livekit.CreateI
 		ParticipantIdentity: req.ParticipantIdentity,
 		ParticipantName:     req.ParticipantName,
 		Reusable:            req.InputType == livekit.IngressInput_RTMP_INPUT,
-		State: &livekit.IngressState{
-			Status: livekit.IngressState_ENDPOINT_INACTIVE,
-		},
+		State:               &livekit.IngressState{},
 	}
 
 	if err := s.store.StoreIngress(ctx, info); err != nil {
@@ -89,16 +94,48 @@ func (s *IngressService) CreateIngress(ctx context.Context, req *livekit.CreateI
 	return info, nil
 }
 
+func (s *IngressService) sendRPCWithRetry(ctx context.Context, req *livekit.IngressRequest) (*livekit.IngressState, error) {
+	type result struct {
+		state *livekit.IngressState
+		err   error
+	}
+
+	resChan := make(chan result, 1)
+
+	go func() {
+		cctx, _ := context.WithTimeout(context.Background(), retryTimeout)
+
+		for {
+			select {
+			case <-cctx.Done():
+				resChan <- result{nil, ingress.ErrNoResponse}
+				return
+			default:
+			}
+
+			s, err := s.rpcClient.SendRequest(cctx, req)
+			if err != ingress.ErrNoResponse {
+				resChan <- result{s, err}
+				return
+			}
+		}
+	}()
+
+	select {
+	case res := <-resChan:
+		return res.state, res.err
+	case <-time.After(initialTimeout):
+		return nil, ingress.ErrNoResponse
+	}
+}
+
 func (s *IngressService) UpdateIngress(ctx context.Context, req *livekit.UpdateIngressRequest) (*livekit.IngressInfo, error) {
-	roomName, err := EnsureJoinPermission(ctx)
+	err := EnsureIngressAdminPermission(ctx)
 	if err != nil {
 		return nil, twirpAuthError(err)
 	}
-	if req.RoomName != "" && req.RoomName != string(roomName) {
-		return nil, twirpAuthError(ErrPermissionDenied)
-	}
 
-	if s.rpc == nil {
+	if s.rpcClient == nil {
 		return nil, ErrIngressNotConnected
 	}
 
@@ -111,6 +148,10 @@ func (s *IngressService) UpdateIngress(ctx context.Context, req *livekit.UpdateI
 	switch info.State.Status {
 	case livekit.IngressState_ENDPOINT_ERROR:
 		info.State.Status = livekit.IngressState_ENDPOINT_INACTIVE
+		err = s.store.UpdateIngressState(ctx, req.IngressId, info.State)
+		if err != nil {
+			logger.Warnw("could not store ingress state", err)
+		}
 		fallthrough
 
 	case livekit.IngressState_ENDPOINT_INACTIVE:
@@ -135,13 +176,15 @@ func (s *IngressService) UpdateIngress(ctx context.Context, req *livekit.UpdateI
 
 	case livekit.IngressState_ENDPOINT_BUFFERING,
 		livekit.IngressState_ENDPOINT_PUBLISHING:
-		info, err = s.rpc.SendRequest(ctx, &livekit.IngressRequest{
+		// Do not update store the returned state as the ingress service will do it
+		s, err := s.sendRPCWithRetry(ctx, &livekit.IngressRequest{
 			IngressId: req.IngressId,
 			Request:   &livekit.IngressRequest_Update{Update: req},
 		})
 		if err != nil {
-			logger.Errorw("could not update active ingress", err)
-			return nil, err
+			logger.Warnw("could not update active ingress", err)
+		} else {
+			info.State = s
 		}
 	}
 
@@ -155,16 +198,9 @@ func (s *IngressService) UpdateIngress(ctx context.Context, req *livekit.UpdateI
 }
 
 func (s *IngressService) ListIngress(ctx context.Context, req *livekit.ListIngressRequest) (*livekit.ListIngressResponse, error) {
-	roomName, err := EnsureJoinPermission(ctx)
+	err := EnsureIngressAdminPermission(ctx)
 	if err != nil {
 		return nil, twirpAuthError(err)
-	}
-	if req.RoomName != "" && req.RoomName != string(roomName) {
-		return nil, twirpAuthError(ErrPermissionDenied)
-	}
-
-	if s.rpc == nil {
-		return nil, ErrIngressNotConnected
 	}
 
 	infos, err := s.store.ListIngress(ctx, livekit.RoomName(req.RoomName))
@@ -177,11 +213,11 @@ func (s *IngressService) ListIngress(ctx context.Context, req *livekit.ListIngre
 }
 
 func (s *IngressService) DeleteIngress(ctx context.Context, req *livekit.DeleteIngressRequest) (*livekit.IngressInfo, error) {
-	if _, err := EnsureJoinPermission(ctx); err != nil {
+	if err := EnsureIngressAdminPermission(ctx); err != nil {
 		return nil, twirpAuthError(err)
 	}
 
-	if s.rpc == nil {
+	if s.rpcClient == nil {
 		return nil, ErrIngressNotConnected
 	}
 
@@ -193,13 +229,14 @@ func (s *IngressService) DeleteIngress(ctx context.Context, req *livekit.DeleteI
 	switch info.State.Status {
 	case livekit.IngressState_ENDPOINT_BUFFERING,
 		livekit.IngressState_ENDPOINT_PUBLISHING:
-		info, err = s.rpc.SendRequest(ctx, &livekit.IngressRequest{
+		s, err := s.sendRPCWithRetry(ctx, &livekit.IngressRequest{
 			IngressId: req.IngressId,
 			Request:   &livekit.IngressRequest_Delete{Delete: req},
 		})
 		if err != nil {
-			logger.Errorw("could not stop active ingress", err)
-			return nil, err
+			logger.Warnw("could not stop active ingress", err)
+		} else {
+			info.State = s
 		}
 	}
 
@@ -214,7 +251,7 @@ func (s *IngressService) DeleteIngress(ctx context.Context, req *livekit.DeleteI
 }
 
 func (s *IngressService) updateWorker() {
-	sub, err := s.rpc.GetUpdateChannel(context.Background())
+	sub, err := s.rpcClient.GetUpdateChannel(context.Background())
 	if err != nil {
 		logger.Errorw("failed to subscribe to results channel", err)
 		return
@@ -226,16 +263,16 @@ func (s *IngressService) updateWorker() {
 		case msg := <-resChan:
 			b := sub.Payload(msg)
 
-			res := &livekit.IngressInfo{}
+			res := &livekit.UpdateIngressStateRequest{}
 			if err = proto.Unmarshal(b, res); err != nil {
 				logger.Errorw("failed to read results", err)
 				continue
 			}
 
 			// save updated info to store
-			err = s.store.UpdateIngress(context.Background(), res)
+			err = s.store.UpdateIngressState(context.Background(), res.IngressId, res.State)
 			if err != nil {
-				logger.Errorw("could not update egress", err)
+				logger.Errorw("could not update ingress", err)
 			}
 
 		case <-s.shutdown:
@@ -246,7 +283,7 @@ func (s *IngressService) updateWorker() {
 }
 
 func (s *IngressService) entitiesWorker() {
-	sub, err := s.rpc.GetEntityChannel(context.Background())
+	sub, err := s.rpcClient.GetEntityChannel(context.Background())
 	if err != nil {
 		logger.Errorw("failed to subscribe to entities channel", err)
 		return
@@ -273,7 +310,7 @@ func (s *IngressService) entitiesWorker() {
 			} else {
 				err = errors.New("request needs to specity either IngressId or StreamKey")
 			}
-			err = s.rpc.SendResponse(context.Background(), req, info, err)
+			err = s.rpcClient.SendGetIngressInfoResponse(context.Background(), req, &livekit.GetIngressInfoResponse{Info: info}, err)
 			if err != nil {
 				logger.Errorw("could not send response", err)
 			}

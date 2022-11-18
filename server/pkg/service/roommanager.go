@@ -48,6 +48,7 @@ type RoomManager struct {
 	roomStore         ObjectStore
 	telemetry         telemetry.TelemetryService
 	clientConfManager clientconfiguration.ClientConfigurationManager
+	egressLauncher    rtc.EgressLauncher
 
 	rooms map[livekit.RoomName]*rtc.Room
 
@@ -61,6 +62,7 @@ func NewLocalRoomManager(
 	router routing.Router,
 	telemetry telemetry.TelemetryService,
 	clientConfManager clientconfiguration.ClientConfigurationManager,
+	egressLauncher rtc.EgressLauncher,
 ) (*RoomManager, error) {
 
 	rtcConf, err := rtc.NewWebRTCConfig(conf, currentNode.Ip)
@@ -76,6 +78,7 @@ func NewLocalRoomManager(
 		roomStore:         roomStore,
 		telemetry:         telemetry,
 		clientConfManager: clientConfManager,
+		egressLauncher:    egressLauncher,
 
 		rooms: make(map[livekit.RoomName]*rtc.Room),
 
@@ -193,8 +196,8 @@ func (r *RoomManager) Stop() {
 	}
 
 	if r.rtcConfig != nil {
-		if r.rtcConfig.UDPMuxConn != nil {
-			_ = r.rtcConfig.UDPMuxConn.Close()
+		if r.rtcConfig.UDPMux != nil {
+			_ = r.rtcConfig.UDPMux.Close()
 		}
 		if r.rtcConfig.TCPMuxListener != nil {
 			_ = r.rtcConfig.TCPMuxListener.Close()
@@ -268,6 +271,11 @@ func (r *RoomManager) StartSession(
 	sid := livekit.ParticipantID(utils.NewGuid(utils.ParticipantPrefix))
 	pLogger := rtc.LoggerWithParticipant(room.Logger, pi.Identity, sid, false)
 	protoRoom := room.ToProto()
+	// default allow forceTCP
+	allowFallback := true
+	if r.config.RTC.AllowTCPFallback != nil {
+		allowFallback = *r.config.RTC.AllowTCPFallback
+	}
 	participant, err = rtc.NewParticipant(rtc.ParticipantParams{
 		Identity:                pi.Identity,
 		Name:                    pi.Name,
@@ -287,7 +295,14 @@ func (r *RoomManager) StartSession(
 		ClientInfo:              rtc.ClientInfo{ClientInfo: pi.Client},
 		Region:                  pi.Region,
 		AdaptiveStream:          pi.AdaptiveStream,
-		AllowTCPFallback:        r.config.RTC.AllowTCPFallback,
+		AllowTCPFallback:        allowFallback,
+		TURNSEnabled:            r.config.IsTURNSEnabled(),
+		GetParticipantInfo: func(pID livekit.ParticipantID) *livekit.ParticipantInfo {
+			if p := room.GetParticipantBySid(pID); p != nil {
+				return p.ToProto()
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return err
@@ -309,7 +324,7 @@ func (r *RoomManager) StartSession(
 
 	updateParticipantCount := func(proto *livekit.Room) {
 		if !participant.Hidden() {
-			err = r.roomStore.StoreRoom(ctx, proto)
+			err = r.roomStore.StoreRoom(ctx, proto, room.Internal())
 			if err != nil {
 				logger.Errorw("could not store room", err)
 			}
@@ -317,7 +332,7 @@ func (r *RoomManager) StartSession(
 	}
 
 	// update room store with new numParticipants
-	updateParticipantCount(protoRoom)
+	updateParticipantCount(room.ToProto())
 
 	clientMeta := &livekit.AnalyticsClientMeta{Region: r.currentNode.Region, Node: r.currentNode.Id}
 	r.telemetry.ParticipantJoined(ctx, protoRoom, participant.ToProto(), pi.Client, clientMeta)
@@ -363,7 +378,7 @@ func (r *RoomManager) getOrCreateRoom(ctx context.Context, roomName livekit.Room
 	}
 
 	// create new room, get details first
-	ri, err := r.roomStore.LoadRoom(ctx, roomName)
+	ri, internal, err := r.roomStore.LoadRoom(ctx, roomName, true)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +398,7 @@ func (r *RoomManager) getOrCreateRoom(ctx context.Context, roomName livekit.Room
 	}
 
 	// construct ice servers
-	newRoom := rtc.NewRoom(ri, *r.rtcConfig, &r.config.Audio, r.serverInfo, r.telemetry)
+	newRoom := rtc.NewRoom(ri, internal, *r.rtcConfig, &r.config.Audio, r.serverInfo, r.telemetry, r.egressLauncher)
 
 	newRoom.OnClose(func() {
 		roomInfo := newRoom.ToProto()
@@ -397,7 +412,7 @@ func (r *RoomManager) getOrCreateRoom(ctx context.Context, roomName livekit.Room
 	})
 
 	newRoom.OnMetadataUpdate(func(metadata string) {
-		if err := r.roomStore.StoreRoom(ctx, newRoom.ToProto()); err != nil {
+		if err := r.roomStore.StoreRoom(ctx, newRoom.ToProto(), newRoom.Internal()); err != nil {
 			newRoom.Logger.Errorw("could not handle metadata update", err)
 		}
 	})
@@ -565,7 +580,7 @@ func (r *RoomManager) handleRTCMessage(ctx context.Context, roomName livekit.Roo
 				"subscribe", rm.UpdateSubscriptions.Subscribe)
 		}
 	case *livekit.RTCNodeMessage_SendData:
-		pLogger.Debugw("SendData", "size", len(rm.SendData.Data))
+		pLogger.Debugw("api send data", "size", len(rm.SendData.Data))
 		up := &livekit.UserPacket{
 			Payload:         rm.SendData.Data,
 			DestinationSids: rm.SendData.DestinationSids,

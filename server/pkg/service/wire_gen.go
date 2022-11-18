@@ -21,6 +21,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/webhook"
+	"github.com/pion/turn/v2"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -33,23 +34,19 @@ import (
 // Injectors from wire.go:
 
 func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*LivekitServer, error) {
-	client, err := createRedisClient(conf)
+	roomConfig := getRoomConf(conf)
+	universalClient, err := createRedisClient(conf)
 	if err != nil {
 		return nil, err
 	}
-	router := routing.CreateRouter(client, currentNode)
-	objectStore := createStore(client)
+	router := routing.CreateRouter(universalClient, currentNode)
+	objectStore := createStore(universalClient)
 	roomAllocator, err := NewRoomAllocator(conf, router, objectStore)
 	if err != nil {
 		return nil, err
 	}
-	roomConfig := getRoomConf(conf)
-	roomService, err := NewRoomService(roomAllocator, objectStore, router, roomConfig)
-	if err != nil {
-		return nil, err
-	}
 	nodeID := getNodeID(currentNode)
-	rpcClient := egress.NewRedisRPCClient(nodeID, client)
+	rpcClient := egress.NewRedisRPCClient(nodeID, universalClient)
 	egressStore := getEgressStore(objectStore)
 	keyProvider, err := createKeyProvider(conf)
 	if err != nil {
@@ -61,18 +58,25 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	}
 	analyticsService := telemetry.NewAnalyticsService(conf, currentNode)
 	telemetryService := telemetry.NewTelemetryService(notifier, analyticsService)
-	egressService := NewEgressService(rpcClient, objectStore, egressStore, roomService, telemetryService)
-	rpc := ingress.NewRedisRPC(nodeID, client)
+	rtcEgressLauncher := NewEgressLauncher(rpcClient, egressStore, telemetryService)
+	roomService, err := NewRoomService(roomConfig, router, roomAllocator, objectStore, rtcEgressLauncher)
+	if err != nil {
+		return nil, err
+	}
+	egressService := NewEgressService(rpcClient, objectStore, egressStore, roomService, telemetryService, rtcEgressLauncher)
+	ingressConfig := getIngressConfig(conf)
+	rpc := ingress.NewRedisRPC(nodeID, universalClient)
+	ingressRPCClient := getIngressRPCClient(rpc)
 	ingressStore := getIngressStore(objectStore)
-	ingressService := NewIngressService(conf, rpc, ingressStore, roomService, telemetryService)
+	ingressService := NewIngressService(ingressConfig, ingressRPCClient, ingressStore, roomService, telemetryService)
 	rtcService := NewRTCService(conf, roomAllocator, objectStore, router, currentNode)
 	clientConfigurationManager := createClientConfiguration()
-	roomManager, err := NewLocalRoomManager(conf, objectStore, currentNode, router, telemetryService, clientConfigurationManager)
+	roomManager, err := NewLocalRoomManager(conf, objectStore, currentNode, router, telemetryService, clientConfigurationManager, rtcEgressLauncher)
 	if err != nil {
 		return nil, err
 	}
 	authHandler := newTurnAuthHandler(objectStore)
-	server, err := NewTurnServer(conf, authHandler)
+	server, err := newInProcessTurnServer(conf, authHandler)
 	if err != nil {
 		return nil, err
 	}
@@ -84,11 +88,11 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 }
 
 func InitializeRouter(conf *config.Config, currentNode routing.LocalNode) (routing.Router, error) {
-	client, err := createRedisClient(conf)
+	universalClient, err := createRedisClient(conf)
 	if err != nil {
 		return nil, err
 	}
-	router := routing.CreateRouter(client, currentNode)
+	router := routing.CreateRouter(universalClient, currentNode)
 	return router, nil
 }
 
@@ -139,12 +143,12 @@ func createWebhookNotifier(conf *config.Config, provider auth.KeyProvider) (webh
 	return webhook.NewNotifier(wc.APIKey, secret, wc.URLs), nil
 }
 
-func createRedisClient(conf *config.Config) (*redis.Client, error) {
+func createRedisClient(conf *config.Config) (redis.UniversalClient, error) {
 	if !conf.HasRedis() {
 		return nil, nil
 	}
 
-	var rc *redis.Client
+	var rc redis.UniversalClient
 	var tlsConfig *tls.Config
 
 	if conf.Redis.UseTLS {
@@ -189,7 +193,7 @@ func createRedisClient(conf *config.Config) (*redis.Client, error) {
 	return rc, nil
 }
 
-func createStore(rc *redis.Client) ObjectStore {
+func createStore(rc redis.UniversalClient) ObjectStore {
 	if rc != nil {
 		return NewRedisStore(rc)
 	}
@@ -214,10 +218,22 @@ func getIngressStore(s ObjectStore) IngressStore {
 	}
 }
 
+func getIngressConfig(conf *config.Config) *config.IngressConfig {
+	return &conf.Ingress
+}
+
+func getIngressRPCClient(rpc ingress.RPC) ingress.RPCClient {
+	return rpc
+}
+
 func createClientConfiguration() clientconfiguration.ClientConfigurationManager {
 	return clientconfiguration.NewStaticClientConfigurationManager(clientconfiguration.StaticConfigurations)
 }
 
 func getRoomConf(config2 *config.Config) config.RoomConfig {
 	return config2.Room
+}
+
+func newInProcessTurnServer(conf *config.Config, authHandler turn.AuthHandler) (*turn.Server, error) {
+	return NewTurnServer(conf, authHandler, false)
 }
